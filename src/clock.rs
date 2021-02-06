@@ -32,7 +32,7 @@ use std::iter::Iterator;
  * For now, cycles are tracked in units of a single PPU cycle, as it is the
  * smallest time unit encountered.
  */
-struct Clock {
+pub struct Clock {
     current: AtomicUsize,
 }
 
@@ -77,7 +77,7 @@ impl Clock {
  * and ensures that their relative counts remain correct.
  * Note: Due to cacheline contention, it might be useful to add padding.
  */
-struct SystemClock {
+pub struct SystemClock {
     pub cpu: Clock,
     pub ppu: Clock,
     pub apu: Clock,
