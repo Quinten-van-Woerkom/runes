@@ -101,7 +101,7 @@ impl SystemClock {
      * least-advanced clock.
      */
     pub fn reset(&self) {
-        let min = *[self.cpu.current(), self.ppu.current()].iter().min().unwrap();
+        let min = *[self.cpu.current(), self.ppu.current(), self.apu.current(), self.cartridge.current()].iter().min().unwrap();
         self.cpu.reset(min);
         self.ppu.reset(min);
         self.apu.reset(min);
