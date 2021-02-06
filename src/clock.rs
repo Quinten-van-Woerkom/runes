@@ -24,6 +24,7 @@
  */
 
 use std::sync::atomic::{ AtomicUsize, Ordering };
+use std::iter::Iterator;
 
 /**
  * Each device that accesses shared memory must explicitly keep track of its
@@ -64,15 +65,53 @@ impl Clock {
      * relative consistency is guaranteed.
      * Precondition: current must be bigger than offset cycles before reset.
      */
-    pub fn reset(&self, cycles: usize){
+    fn reset(&self, cycles: usize){
         let before = self.current.fetch_sub(cycles, Ordering::AcqRel);
         assert!(before >= cycles);
     }
 }
 
 
+/**
+ * The system clock keeps track of each synchronized component individually,
+ * and ensures that their relative counts remain correct.
+ * Note: Due to cacheline contention, it might be useful to add padding.
+ */
+struct SystemClock {
+    pub cpu: Clock,
+    pub ppu: Clock,
+    pub apu: Clock,
+    pub cartridge: Clock,
+    // More clocks to be added.
+}
+
+impl SystemClock {
+    pub fn new() -> Self {
+        Self {
+            cpu: Clock::new(),
+            ppu: Clock::new(),
+            apu: Clock::new(),
+            cartridge: Clock::new(),
+        }
+    }
+
+    /**
+     * To prevent overflow, so as to ensure coherence of relative times, we
+     * must reset all clocks by reducing them with the cycle count of the
+     * least-advanced clock.
+     */
+    pub fn reset(&self) {
+        let min = *[self.cpu.current(), self.ppu.current()].iter().min().unwrap();
+        self.cpu.reset(min);
+        self.ppu.reset(min);
+        self.apu.reset(min);
+        self.cartridge.reset(min);
+    }
+}
+
+
 #[cfg(test)]
-mod test {
+mod clock {
     use super::*;
 
     #[test]
@@ -120,5 +159,38 @@ mod test {
         let clock = Clock::new();
         clock.advance(300);
         clock.reset(301);
+    }
+}
+
+
+#[cfg(test)]
+mod system_clock {
+    use super::*;
+
+    #[test]
+    fn initialization() {
+        let system_clock = SystemClock::new();
+        assert_eq!(system_clock.cpu.current(), 0);
+        assert_eq!(system_clock.ppu.current(), 0);
+        assert_eq!(system_clock.apu.current(), 0);
+        assert_eq!(system_clock.cartridge.current(), 0);
+    }
+
+    #[test]
+    fn coherence() {
+        let system_clock = SystemClock::new();
+        system_clock.cpu.advance(3);
+        system_clock.reset();
+        assert_eq!(system_clock.cpu.current(), 3);
+        assert_eq!(system_clock.apu.current(), 0);
+
+        system_clock.apu.advance(4);
+        system_clock.ppu.advance(4);
+        system_clock.cartridge.advance(4);
+        system_clock.reset();
+        assert_eq!(system_clock.cpu.current(), 0);
+        assert_eq!(system_clock.apu.current(), 1);
+        assert_eq!(system_clock.ppu.current(), 1);
+        assert_eq!(system_clock.cartridge.current(), 1);
     }
 }
