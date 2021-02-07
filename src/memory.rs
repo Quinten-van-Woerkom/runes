@@ -23,7 +23,7 @@
  * SOFTWARE.
  */
 
-use crate::clock;
+use crate::{cartridge, clock};
 
 /**
  * All shared memory on an NES system is owned and regulated by this Memory
@@ -33,7 +33,7 @@ use crate::clock;
 pub struct Memory {
     ppu: PpuRegisters,
     apu: ApuRegisters,
-    cartridge: Cartridge,
+    cartridge: Box<cartridge::Cartridge>,
 }
 
 impl Memory {
@@ -56,4 +56,3 @@ impl Memory {
  */
 struct PpuRegisters {}
 struct ApuRegisters {}
-struct Cartridge {}
