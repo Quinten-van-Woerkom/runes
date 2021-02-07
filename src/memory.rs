@@ -23,29 +23,12 @@
  * SOFTWARE.
  */
 
-use async_trait::async_trait;
 use crate::clock;
 
 /**
- * All shared memory regions must implement this shared memory trait, to
- * synchronize memory accesses. This allows us to create synchronization
- * boundaries only when shared memory is accessed, to minimize the
- * synchronization overhead.
- * 
- * Read-only memory must also support calls to write(), but is allowed to
- * implement it as a no-op.
- */
-#[async_trait]
-trait SharedMemory {
-    async fn read(&self, address: u16, cycle: usize, clock: &clock::SystemClock) -> u8;
-    async fn write(&self, address: u16, byte: u8, cycle: usize, clock: &clock::SystemClock);
-}
-
-
-/**
  * All shared memory on an NES system is owned and regulated by this Memory
- * object. All members of this struct implement SharedMemory and regulate their
- * own separate clock requirements.
+ * object. All members of this struct regulate their own separate clock
+ * requirements.
  */
 pub struct Memory {
     ppu: PpuRegisters,
