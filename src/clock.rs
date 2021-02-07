@@ -75,14 +75,19 @@ impl Clock {
 /**
  * The system clock keeps track of each synchronized component individually,
  * and ensures that their relative counts remain correct.
- * Note: Due to cacheline contention, it might be useful to add padding.
+ * 
+ * These four devices are the natural logical threads into which the NES is
+ * divided. They operate mostly independently, but share data at a couple of
+ * well-defined interfaces. These clock timings are used for synchronization
+ * when any of these boundaries must be crossed.
+ * 
+ * TODO: Due to cacheline contention, it might be useful to add padding.
  */
 pub struct SystemClock {
     pub cpu: Clock,
     pub ppu: Clock,
     pub apu: Clock,
     pub cartridge: Clock,
-    // More clocks to be added.
 }
 
 impl SystemClock {
@@ -99,6 +104,9 @@ impl SystemClock {
      * To prevent overflow, so as to ensure coherence of relative times, we
      * must reset all clocks by reducing them with the cycle count of the
      * least-advanced clock.
+     * 
+     * It is important that this is done sometime before any clock overflows.
+     * Keeping track of this is the responsibility of the user.
      */
     pub fn reset(&self) {
         let min = *[self.cpu.current(), self.ppu.current(), self.apu.current(), self.cartridge.current()].iter().min().unwrap();
