@@ -35,7 +35,7 @@ use std::convert::TryInto;
  */
 pub trait Bitwise {
     fn bit(&self, index: usize) -> bool;
-    fn bits(&self, from: usize, to: usize) -> Self;
+    fn bits(&self, index: usize, size: usize) -> Self;
     fn change_bit(&mut self, index: usize, value: bool);
 
     fn set_bit(&mut self, index: usize) {
@@ -55,10 +55,9 @@ impl Bitwise for u8 {
         ((self >> index) & 1) != 0
     }
 
-    fn bits(&self, from: usize, to: usize) -> Self {
-        assert!(to > from);
-        let mask = !(Self::MAX << (to - from));
-        (self >> from) & mask
+    fn bits(&self, index: usize, size: usize) -> Self {
+        let mask = !(Self::MAX << size);
+        (self >> index) & mask
     }
 
     fn change_bit(&mut self, index: usize, value: bool) {
@@ -72,10 +71,9 @@ impl Bitwise for u16 {
         ((self >> index) & 1) != 0
     }
 
-    fn bits(&self, from: usize, to: usize) -> Self {
-        assert!(to > from);
-        let mask = !(Self::MAX << (to - from));
-        (self >> from) & mask
+    fn bits(&self, index: usize, size: usize) -> Self {
+        let mask = !(Self::MAX << size);
+        (self >> index) & mask
     }
 
     fn change_bit(&mut self, index: usize, value: bool) {
@@ -124,10 +122,10 @@ mod bitwise {
         let upper = 0b11110000u8;
         let lower = 0b00001111u8;
 
-        assert_eq!(ones.bits(5, 8), 0b111u8);
-        assert_eq!(zeros.bits(5, 8), 0b000u8);
+        assert_eq!(ones.bits(5, 3), 0b111u8);
+        assert_eq!(zeros.bits(5, 3), 0b000u8);
         assert_eq!(even.bits(0, 4), 0b0101u8);
-        assert_eq!(even.bits(4, 8), 0b0101u8);
+        assert_eq!(even.bits(4, 4), 0b0101u8);
         assert_eq!(upper.bits(0, 6), 0b110000u8);
         assert_eq!(lower.bits(0, 6), 0b001111u8);
     }
