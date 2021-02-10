@@ -76,27 +76,27 @@ impl Clock {
  * The system clock keeps track of each synchronized component individually,
  * and ensures that their relative counts remain correct.
  * 
- * These four devices are the natural logical threads into which the NES is
+ * These three devices are the natural logical threads into which the NES is
  * divided. They operate mostly independently, but share data at a couple of
  * well-defined interfaces. These clock timings are used for synchronization
  * when any of these boundaries must be crossed.
  * 
  * TODO: Due to cacheline contention, it might be useful to add padding.
+ * TODO: Some cartridges contain processing units themselves, and therefore
+ * need their own synchronization.
  */
 pub struct SystemClock {
+    pub apu: Clock,
     pub cpu: Clock,
     pub ppu: Clock,
-    pub apu: Clock,
-    pub cartridge: Clock,
 }
 
 impl SystemClock {
     pub fn new() -> Self {
         Self {
+            apu: Clock::new(),
             cpu: Clock::new(),
             ppu: Clock::new(),
-            apu: Clock::new(),
-            cartridge: Clock::new(),
         }
     }
 
@@ -109,11 +109,10 @@ impl SystemClock {
      * Keeping track of this is the responsibility of the user.
      */
     pub fn reset(&self) {
-        let min = *[self.cpu.current(), self.ppu.current(), self.apu.current(), self.cartridge.current()].iter().min().unwrap();
+        let min = *[self.apu.current(), self.cpu.current(), self.ppu.current()].iter().min().unwrap();
+        self.apu.reset(min);
         self.cpu.reset(min);
         self.ppu.reset(min);
-        self.apu.reset(min);
-        self.cartridge.reset(min);
     }
 }
 
@@ -178,10 +177,9 @@ mod system_clock {
     #[test]
     fn initialization() {
         let system_clock = SystemClock::new();
+        assert_eq!(system_clock.apu.current(), 0);
         assert_eq!(system_clock.cpu.current(), 0);
         assert_eq!(system_clock.ppu.current(), 0);
-        assert_eq!(system_clock.apu.current(), 0);
-        assert_eq!(system_clock.cartridge.current(), 0);
     }
 
     #[test]
@@ -194,11 +192,9 @@ mod system_clock {
 
         system_clock.apu.advance(4);
         system_clock.ppu.advance(4);
-        system_clock.cartridge.advance(4);
         system_clock.reset();
-        assert_eq!(system_clock.cpu.current(), 0);
         assert_eq!(system_clock.apu.current(), 1);
+        assert_eq!(system_clock.cpu.current(), 0);
         assert_eq!(system_clock.ppu.current(), 1);
-        assert_eq!(system_clock.cartridge.current(), 1);
     }
 }
