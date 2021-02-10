@@ -1,3 +1,4 @@
+mod bitwise;
 mod cartridge;
 mod clock;
 mod memory;
