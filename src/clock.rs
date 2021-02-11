@@ -23,8 +23,10 @@
  * SOFTWARE.
  */
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{ AtomicU64, Ordering };
-use std::iter::Iterator;
+use std::task::{ Context, Poll };
 
 /**
  * Each device that accesses shared memory must explicitly keep track of its
@@ -58,8 +60,52 @@ impl Clock {
     pub fn advance(&self, cycles: u64) {
         self.current.fetch_add(cycles, Ordering::Release);
     }
+
+    /**
+     * Awaits until the clock reaches a given time point.
+     * Useful for synchronization requirements.
+     */
+    pub async fn await_until(&self, cycles: u64) {
+        ClockSynchronization::new(&self, cycles).await;
+    }
 }
 
+
+/**
+ * Future that represents a clock synchronization, asynchronously waiting until
+ * the given clock reaches a certain cycle count.
+ */
+struct ClockSynchronization<'a> {
+    clock: &'a Clock,
+    cycles: u64,
+}
+
+impl<'a> ClockSynchronization<'a> {
+    pub fn new(clock: &'a Clock, cycles: u64) -> Self {
+        Self {
+            clock: clock,
+            cycles: cycles,
+        }
+    }
+}
+
+impl<'a> Future for ClockSynchronization<'a> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        println!("Polling...");
+        if self.clock.current() > self.cycles {
+            println!("Ready!");
+            Poll::Ready(())
+        } else {
+            // For now, we wake always, but it might be better to create a
+            // custom executor that ignores a waker, and instead runs the
+            // thread emulating the device that is farthest behind.
+            context.waker().wake_by_ref();
+            Poll::Pending
+        }
+    }
+}
 
 #[cfg(test)]
 mod clock {
