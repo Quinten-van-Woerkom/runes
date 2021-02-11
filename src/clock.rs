@@ -58,37 +58,6 @@ impl Clock {
     pub fn advance(&self, cycles: u64) {
         self.current.fetch_add(cycles, Ordering::Release);
     }
-
-}
-
-
-/**
- * The system clock keeps track of each synchronized component individually,
- * and ensures that their relative counts remain correct.
- * 
- * These three devices are the natural logical threads into which the NES is
- * divided. They operate mostly independently, but share data at a couple of
- * well-defined interfaces. These clock timings are used for synchronization
- * when any of these boundaries must be crossed.
- * 
- * TODO: Due to cacheline contention, it might be useful to add padding.
- * TODO: Some cartridges contain processing units themselves, and therefore
- * need their own synchronization.
- */
-pub struct SystemClock {
-    pub apu: Clock,
-    pub cpu: Clock,
-    pub ppu: Clock,
-}
-
-impl SystemClock {
-    pub fn new() -> Self {
-        Self {
-            apu: Clock::new(),
-            cpu: Clock::new(),
-            ppu: Clock::new(),
-        }
-    }
 }
 
 
@@ -125,19 +94,5 @@ mod clock {
 
         clock.advance(3);
         assert_eq!(clock.current(), 4);
-    }
-}
-
-
-#[cfg(test)]
-mod system_clock {
-    use super::*;
-
-    #[test]
-    fn initialization() {
-        let system_clock = SystemClock::new();
-        assert_eq!(system_clock.apu.current(), 0);
-        assert_eq!(system_clock.cpu.current(), 0);
-        assert_eq!(system_clock.ppu.current(), 0);
     }
 }
