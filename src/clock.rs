@@ -23,7 +23,7 @@
  * SOFTWARE.
  */
 
-use std::sync::atomic::{ AtomicUsize, Ordering };
+use std::sync::atomic::{ AtomicU64, Ordering };
 use std::iter::Iterator;
 
 /**
@@ -33,13 +33,13 @@ use std::iter::Iterator;
  * smallest time unit encountered.
  */
 pub struct Clock {
-    current: AtomicUsize,
+    current: AtomicU64,
 }
 
 impl Clock {
     pub fn new() -> Self {
         Self {
-            current: AtomicUsize::new(0)
+            current: AtomicU64::new(0)
         }
     }
 
@@ -48,27 +48,17 @@ impl Clock {
      * Note: due to the monotonic nature of time, Ordering::Relaxed might be
      * possible. TODO: Test this.
      */
-    pub fn current(&self) -> usize {
+    pub fn current(&self) -> u64 {
         self.current.load(Ordering::Acquire)
     }
 
     /**
      * Advances the clock by a given number of cycles.
      */
-    pub fn advance(&self, cycles: usize) {
+    pub fn advance(&self, cycles: u64) {
         self.current.fetch_add(cycles, Ordering::Release);
     }
 
-    /**
-     * Resets the cycle count by reducing its value. If clocks are initialized
-     * at the same time and reset at equal moments with equal dislocations,
-     * relative consistency is guaranteed.
-     * Precondition: current must be bigger than offset cycles before reset.
-     */
-    fn reset(&self, cycles: usize){
-        let before = self.current.fetch_sub(cycles, Ordering::AcqRel);
-        assert!(before >= cycles);
-    }
 }
 
 
@@ -98,21 +88,6 @@ impl SystemClock {
             cpu: Clock::new(),
             ppu: Clock::new(),
         }
-    }
-
-    /**
-     * To prevent overflow, so as to ensure coherence of relative times, we
-     * must reset all clocks by reducing them with the cycle count of the
-     * least-advanced clock.
-     * 
-     * It is important that this is done sometime before any clock overflows.
-     * Keeping track of this is the responsibility of the user.
-     */
-    pub fn reset(&self) {
-        let min = *[self.apu.current(), self.cpu.current(), self.ppu.current()].iter().min().unwrap();
-        self.apu.reset(min);
-        self.cpu.reset(min);
-        self.ppu.reset(min);
     }
 }
 
@@ -151,22 +126,6 @@ mod clock {
         clock.advance(3);
         assert_eq!(clock.current(), 4);
     }
-
-    #[test]
-    fn reset() {
-        let clock = Clock::new();
-        clock.advance(300);
-        clock.reset(299);
-        assert_eq!(clock.current(), 1);
-    }
-
-    #[test]
-    #[should_panic]
-    fn invalid_reset() {
-        let clock = Clock::new();
-        clock.advance(300);
-        clock.reset(301);
-    }
 }
 
 
@@ -180,21 +139,5 @@ mod system_clock {
         assert_eq!(system_clock.apu.current(), 0);
         assert_eq!(system_clock.cpu.current(), 0);
         assert_eq!(system_clock.ppu.current(), 0);
-    }
-
-    #[test]
-    fn coherence() {
-        let system_clock = SystemClock::new();
-        system_clock.cpu.advance(3);
-        system_clock.reset();
-        assert_eq!(system_clock.cpu.current(), 3);
-        assert_eq!(system_clock.apu.current(), 0);
-
-        system_clock.apu.advance(4);
-        system_clock.ppu.advance(4);
-        system_clock.reset();
-        assert_eq!(system_clock.apu.current(), 1);
-        assert_eq!(system_clock.cpu.current(), 0);
-        assert_eq!(system_clock.ppu.current(), 1);
     }
 }
