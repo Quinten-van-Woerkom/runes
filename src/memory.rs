@@ -33,7 +33,7 @@ use crate::{cartridge, clock};
 pub struct Memory {
     ppu: PpuRegisters,
     apu: ApuRegisters,
-    cartridge: Box<cartridge::Cartridge>,
+    cartridge: Box<dyn cartridge::Cartridge>,
 }
 
 impl Memory {
