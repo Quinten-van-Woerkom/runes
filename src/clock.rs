@@ -23,9 +23,9 @@
  * SOFTWARE.
  */
 
+use std::cell::Cell;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{ AtomicU64, Ordering };
 use std::task::{ Context, Poll };
 
 /**
@@ -33,77 +33,34 @@ use std::task::{ Context, Poll };
  * current cycle, to allow cycle-accurate memory access synchronization.
  * For now, cycles are tracked in units of a single PPU cycle, as it is the
  * smallest time unit encountered.
+ * 
+ * For now emulation is kept single-threaded, so only interior mutability is
+ * required, and no explicit synchronization primitives.
  */
 pub struct Clock {
-    current: AtomicU64,
+    current: Cell<u64>,
 }
 
 impl Clock {
     pub fn new() -> Self {
         Self {
-            current: AtomicU64::new(0)
+            current: Cell::new(0)
         }
     }
 
     /**
      * Returns the current clock cycle.
-     * Note: due to the monotonic nature of time, Ordering::Relaxed might be
-     * possible. TODO: Test this.
      */
     pub fn current(&self) -> u64 {
-        self.current.load(Ordering::Acquire)
+        self.current.get()
     }
 
     /**
      * Advances the clock by a given number of cycles.
      */
     pub fn advance(&self, cycles: u64) {
-        self.current.fetch_add(cycles, Ordering::Release);
-    }
-
-    /**
-     * Asynchronously waits until the clock reaches a given cycle.
-     * Useful for synchronization requirements.
-     */
-    pub async fn await_until(&self, cycles: u64) {
-        Synchronization::new(&self, cycles).await;
-    }
-}
-
-
-/**
- * Future that represents a clock synchronization, asynchronously waiting until
- * the given clock reaches a certain cycle count.
- */
-struct Synchronization<'a> {
-    clock: &'a Clock,
-    cycles: u64,
-}
-
-impl<'a> Synchronization<'a> {
-    pub fn new(clock: &'a Clock, cycles: u64) -> Self {
-        Self {
-            clock: clock,
-            cycles: cycles,
-        }
-    }
-}
-
-impl<'a> Future for Synchronization<'a> {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
-        println!("Polling...");
-        if self.clock.current() > self.cycles {
-            println!("Ready!");
-            Poll::Ready(())
-        } else {
-            // For now, we wake always, but it might be better to create a
-            // custom executor that ignores a waker, and instead runs the
-            // thread emulating the device that is farthest behind.
-            context.waker().wake_by_ref();
-            Poll::Pending
-        }
+        let advanced = self.current.get() + cycles;
+        self.current.set(advanced);
     }
 }
 
