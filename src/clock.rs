@@ -24,9 +24,6 @@
  */
 
 use std::cell::Cell;
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{ Context, Poll };
 
 /**
  * Each device that accesses shared memory must explicitly keep track of its
