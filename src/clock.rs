@@ -62,11 +62,11 @@ impl Clock {
     }
 
     /**
-     * Awaits until the clock reaches a given time point.
+     * Asynchronously waits until the clock reaches a given cycle.
      * Useful for synchronization requirements.
      */
     pub async fn await_until(&self, cycles: u64) {
-        ClockSynchronization::new(&self, cycles).await;
+        Synchronization::new(&self, cycles).await;
     }
 }
 
@@ -75,12 +75,12 @@ impl Clock {
  * Future that represents a clock synchronization, asynchronously waiting until
  * the given clock reaches a certain cycle count.
  */
-struct ClockSynchronization<'a> {
+struct Synchronization<'a> {
     clock: &'a Clock,
     cycles: u64,
 }
 
-impl<'a> ClockSynchronization<'a> {
+impl<'a> Synchronization<'a> {
     pub fn new(clock: &'a Clock, cycles: u64) -> Self {
         Self {
             clock: clock,
@@ -89,7 +89,7 @@ impl<'a> ClockSynchronization<'a> {
     }
 }
 
-impl<'a> Future for ClockSynchronization<'a> {
+impl<'a> Future for Synchronization<'a> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
