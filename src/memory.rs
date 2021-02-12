@@ -27,8 +27,7 @@ use crate::{cartridge, clock};
 
 /**
  * All shared memory on an NES system is owned and regulated by this Memory
- * object. All members of this struct regulate their own separate clock
- * requirements.
+ * object.
  */
 pub struct Memory {
     ppu: PpuRegisters,
