@@ -23,7 +23,8 @@
  * SOFTWARE.
  */
 
-use crate::{cartridge, clock};
+use crate::{cartridge, clock, cpu};
+use std::cell::Cell;
 
 /**
  * All shared memory on an NES system is accessed through the bus, naturally.
@@ -31,11 +32,11 @@ use crate::{cartridge, clock};
  * accessing this memory.
  * 
  * In a small deviation from reality, shared memory must also be accessed
- * through the bus, even when it belongs to the accessing device in reality,
- * like the PPU registers, for example. This is necessary to be able to force
- * synchronization.
+ * through the bus, even when, in reality, it belongs to the accessing device,
+ * like the PPU registers. This is needed to be able to force synchronization.
  */
 pub struct Bus {
+    ram: [Cell<u8>; 0x800],
     ppu: PpuRegisters,
     apu: ApuRegisters,
     cartridge: Box<dyn cartridge::Cartridge>,
