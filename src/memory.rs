@@ -1,5 +1,5 @@
 /**
- * shared_memory.rs
+ * memory.rs
  * Part of Rust Nintendo Entertainment System emulator ("RuNES")
  * 
  * Copyright (c) 2021 Quinten van Woerkom
