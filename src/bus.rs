@@ -1,5 +1,5 @@
 /**
- * memory.rs
+ * bus.rs
  * Part of Rust Nintendo Entertainment System emulator ("RuNES")
  * 
  * Copyright (c) 2021 Quinten van Woerkom
@@ -26,16 +26,22 @@
 use crate::{cartridge, clock};
 
 /**
- * All shared memory on an NES system is owned and regulated by this Memory
- * object.
+ * All shared memory on an NES system is accessed through the bus, naturally.
+ * This means that it also makes for a good synchronization barrier when
+ * accessing this memory.
+ * 
+ * In a small deviation from reality, shared memory must also be accessed
+ * through the bus, even when it belongs to the accessing device in reality,
+ * like the PPU registers, for example. This is necessary to be able to force
+ * synchronization.
  */
-pub struct Memory {
+pub struct Bus {
     ppu: PpuRegisters,
     apu: ApuRegisters,
     cartridge: Box<dyn cartridge::Cartridge>,
 }
 
-impl Memory {
+impl Bus {
     pub fn empty() -> Self {
         unimplemented!()
     }

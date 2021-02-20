@@ -1,7 +1,7 @@
 mod bitwise;
+mod bus;
 mod cartridge;
 mod clock;
-mod memory;
 mod yields;
 
 fn main() {
