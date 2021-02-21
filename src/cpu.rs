@@ -30,7 +30,7 @@ use crate::yields::yields;
 /**
  * Emulated internals of the Ricoh 2A03.
  */
-struct Ricoh2A03 {
+pub struct Ricoh2A03 {
     clock: Clock,
     program_counter: u16,
     status: Status,
@@ -42,7 +42,7 @@ struct Ricoh2A03 {
 
 
 impl Ricoh2A03 {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             clock: Clock::new(),
             program_counter: 0xc000,
@@ -51,6 +51,13 @@ impl Ricoh2A03 {
             accumulator: 0x00,
             x: 0x00,
             y: 0x00,
+        }
+    }
+
+    pub async fn run(&mut self, bus: &impl Bus) {
+        loop {
+            let opcode = self.fetch(bus).await;
+            self.execute(bus, opcode).await;
         }
     }
 
@@ -75,28 +82,51 @@ impl Ricoh2A03 {
                 let address = self.$addressing(bus).await;
                 self.$operation(bus, address).await;
             }};
+
+
+            // Absolute,X and Indirect indexed take one less cycle if a read
+            // instruction does not cross page boundaries while addressing.
+            ($operation:ident, absolute_x, $read_instruction:expr) => {{
+                let (address, page_crossing) = self.absolute_x(bus).await;
+                if !$read_instruction || page_crossing {
+                    self.clock.advance(1);
+                }
+                self.$operation(bus, address).await;
+            }};
+
+            ($operation:ident, indirect_indexed, $read_instruction:expr) => {{
+                let (address, page_crossing) = self.indirect_indexed(bus).await;
+                if !$read_instruction || page_crossing {
+                    self.clock.advance(1);
+                }
+                self.$operation(bus, address).await;
+            }};
         }
 
         match opcode {
+            0x06 => instruction!(asl, zeropage),
+            0x0e => instruction!(asl, absolute),
             0x10 => instruction!(bpl, relative, negative, false),
+            0x16 => instruction!(asl, zeropage_x),
+            0x1e => instruction!(asl, absolute_x, false),
             0x21 => instruction!(and, indexed_indirect),
             0x25 => instruction!(and, zeropage),
             0x29 => instruction!(and, immediate),
             0x2d => instruction!(and, absolute),
             0x30 => instruction!(bmi, relative, negative, true),
-            0x31 => instruction!(and, indirect_indexed),
+            0x31 => instruction!(and, indirect_indexed, true),
             0x35 => instruction!(and, zeropage_x),
             0x39 => instruction!(and, absolute_y),
-            0x3d => instruction!(and, absolute_x),
+            0x3d => instruction!(and, absolute_x, true),
             0x50 => instruction!(bvc, relative, overflow, false),
             0x61 => instruction!(adc, indexed_indirect),
             0x65 => instruction!(adc, zeropage),
             0x69 => instruction!(adc, immediate),
             0x6d => instruction!(adc, absolute),
             0x70 => instruction!(bvs, relative, overflow, true),
-            0x71 => instruction!(adc, indirect_indexed),
+            0x71 => instruction!(adc, indirect_indexed, true),
             0x75 => instruction!(adc, zeropage_x),
-            0x7d => instruction!(adc, absolute_x),
+            0x7d => instruction!(adc, absolute_x, true),
             0x79 => instruction!(adc, absolute_y),
             0x90 => instruction!(bcc, relative, carry, false),
             0xb0 => instruction!(bcs, relative, carry, true),
@@ -208,22 +238,24 @@ impl Ricoh2A03 {
 
     /**
      * Absolute indexed addressing adds an index register to the absolute
-     * address. Takes an additional cycle if a page boundary is crossed.
+     * address. Might take an additional cycle depending on the instruction and
+     * whether or not a page boundary is crossed.
      */
-    async fn absolute_x(&mut self, bus: &impl Bus) -> u16 {
+    async fn absolute_x(&mut self, bus: &impl Bus) -> (u16, bool) {
         let address = self.absolute(bus).await;
         let effective_address = address.wrapping_add(self.x as u16);
 
         if address.high_byte() != effective_address.high_byte() {
-            self.clock.advance(1);
+            (effective_address, true)
+        } else {
+            (effective_address, false)
         }
-
-        effective_address
     }
 
     /**
      * Absolute indexed addressing adds an index register to the absolute
-     * address. Takes an additional cycle if a page boundary is crossed.
+     * address. Can take an additional cycle depending on the instruction and
+     * whether or not a page boundary is crossed.
      */
     async fn absolute_y(&mut self, bus: &impl Bus) -> u16 {
         let address = self.absolute(bus).await;
@@ -295,9 +327,10 @@ impl Ricoh2A03 {
     /**
      * Indirect indexed adds the Y register to the 16-bit address read from the
      * location found using zero page indexing.
-     * If a page boundary is crossed when adding Y, an extra cycle is used.
+     * If a page boundary is crossed when adding Y, an extra cycle might be
+     * used, depending on the instruction.
      */
-    async fn indirect_indexed(&mut self, bus: &impl Bus) -> u16 {
+    async fn indirect_indexed(&mut self, bus: &impl Bus) -> (u16, bool) {
         let zeropage_address = self.zeropage(bus).await;
         let low_byte = self.read(bus, zeropage_address).await;
         let high_byte = self.read(bus, zeropage_address.wrapping_add(1)).await;
@@ -305,10 +338,10 @@ impl Ricoh2A03 {
         let effective_address = address.wrapping_add(self.y as u16);
 
         if address.high_byte() != effective_address.high_byte() {
-            self.clock.advance(1);
+            (effective_address, true)
+        } else {
+            (effective_address, false)
         }
-
-        effective_address
     }
 
     /**
@@ -333,6 +366,22 @@ impl Ricoh2A03 {
         self.status.overflow = (operand.bit(7) == self.accumulator.bit(7)) && (operand.bit(7) != result.bit(7));
         self.status.negative = result.bit(7);
         self.accumulator = result.low_byte();
+    }
+
+    /**
+     * Arithmetic shift left.
+     * This refers to the non-accumulator version. The accumulator addressing
+     * variant is implemented as if it were a separate instruction, as it
+     * practically is.
+     */
+    async fn asl(&mut self, bus: &impl Bus, address: u16) {
+        let operand = self.read(bus, address).await;
+        self.clock.advance(1); // Dummy write while doing the operation
+        self.status.carry = operand.bit(7);
+        let result = operand << 1;
+        self.status.zero = result == 0;
+        self.status.negative = result.bit(7);
+        self.write(bus, address, result).await;
     }
 }
 
@@ -548,6 +597,11 @@ mod test {
             check_timing!("AND", "Absolute,Y", 0x39, 4);
             check_timing!("AND", "(Indirect,X)", 0x21, 6);
             check_timing!("AND", "(Indirect),Y", 0x31, 5);
+
+            check_timing!("ASL", "Zeropage", 0x06, 5);
+            check_timing!("ASL", "Zeropage,X", 0x16, 6);
+            check_timing!("ASL", "Absolute", 0x0e, 6);
+            check_timing!("ASL", "Absolute,X", 0x1e, 7);
 
             // Branch instructions take a variable number of cycles, so must be
             // checked for each of those scenarios.
