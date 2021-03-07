@@ -68,7 +68,7 @@ impl Ricoh2A03 {
          */
         macro_rules! instruction {
             ($operation:ident, implied) => {{
-                self.operation()
+                self.$operation()
             }};
 
             ($conditional_branch:ident, relative, $flag:ident, $value:expr) => {{
@@ -84,7 +84,7 @@ impl Ricoh2A03 {
             }};
 
 
-            // Absolute,X and Indirect indexed take one less cycle if a read
+            // Absolute,X addressing take one less cycle if a read
             // instruction does not cross page boundaries while addressing.
             ($operation:ident, absolute_x, $read_instruction:expr) => {{
                 let (address, page_crossing) = self.absolute_x(bus).await;
@@ -94,6 +94,8 @@ impl Ricoh2A03 {
                 self.$operation(bus, address).await;
             }};
 
+            // Indirect indexed addressing take one less cycle if a read
+            // instruction does not cross page boundaries while addressing.
             ($operation:ident, indirect_indexed, $read_instruction:expr) => {{
                 let (address, page_crossing) = self.indirect_indexed(bus).await;
                 if !$read_instruction || page_crossing {
@@ -105,6 +107,7 @@ impl Ricoh2A03 {
 
         match opcode {
             0x06 => instruction!(asl, zeropage),
+            0x0a => instruction!(asl_accumulator, implied),
             0x0e => instruction!(asl, absolute),
             0x10 => instruction!(bpl, relative, negative, false),
             0x16 => instruction!(asl, zeropage_x),
@@ -382,6 +385,16 @@ impl Ricoh2A03 {
         self.status.zero = result == 0;
         self.status.negative = result.bit(7);
         self.write(bus, address, result).await;
+    }
+
+    /**
+     * Arithmetic shift left, accumulator
+     */
+    fn asl_accumulator(&mut self) {
+        self.status.carry = self.accumulator.bit(7);
+        self.accumulator <<= 1;
+        self.status.zero = self.accumulator == 0;
+        self.status.negative = self.accumulator.bit(7);
     }
 }
 
