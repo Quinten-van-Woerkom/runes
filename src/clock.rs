@@ -34,6 +34,7 @@ use std::cell::Cell;
  * For now emulation is kept single-threaded, so only interior mutability is
  * required, and no explicit synchronization primitives.
  */
+#[derive(Debug)]
 pub struct Clock {
     current: Cell<u64>,
 }
