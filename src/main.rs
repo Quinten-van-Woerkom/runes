@@ -18,10 +18,6 @@ struct ArrayBus {
 }
 
 impl ArrayBus {
-    fn new() -> Self {
-        Self { data: unsafe { std::mem::transmute([0u8; 0x10000]) } }
-    }
-
     fn load_nestest(path: &std::path::Path) -> std::io::Result<Self> {
         let mut buffer = [0u8; 0x10000];
         let mut file = std::fs::File::open(path)?;

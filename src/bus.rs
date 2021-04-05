@@ -43,15 +43,15 @@ pub struct Bus {
 }
 
 impl Bus {
-    pub fn empty() -> Self {
+    pub fn _empty() -> Self {
         unimplemented!()
     }
     
-    pub fn from_rom(rom: std::fs::File) -> Self {
+    pub fn _from_rom(_rom: std::fs::File) -> Self {
         unimplemented!()
     }
 
-    pub fn from_save(rom: std::fs::File, save: std::fs::File) -> Self {
+    pub fn _from_save(_rom: std::fs::File, _save: std::fs::File) -> Self {
         unimplemented!()
     }
 }
