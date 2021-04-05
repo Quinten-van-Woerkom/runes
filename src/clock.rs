@@ -34,7 +34,7 @@ use std::cell::Cell;
  * For now emulation is kept single-threaded, so only interior mutability is
  * required, and no explicit synchronization primitives.
  */
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Clock {
     current: Cell<u64>,
 }
@@ -43,6 +43,12 @@ impl Clock {
     pub fn new() -> Self {
         Self {
             current: Cell::new(0)
+        }
+    }
+
+    pub fn from(cycle: u64) -> Self {
+        Self {
+            current: Cell::new(cycle)
         }
     }
 
