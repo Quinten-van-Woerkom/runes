@@ -189,6 +189,8 @@ impl Ricoh2A03 {
 
         /**
          * Store register into memory
+         * The unofficial opcode SAX stores the bitwise AND of the accumulator
+         * and the X index register.
          */
         macro_rules! store {
             (a & x, $addressing:ident) => {{
@@ -275,7 +277,7 @@ impl Ricoh2A03 {
         match opcode {
             0x00 => system!(brk),
             0x01 => read!(ora, indexed_indirect),
-            0x02 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x02 => implied!(nop), // In reality, halts the machine
             0x03 => combine!(asl, ora, indexed_indirect),
             0x04 => noop!(zeropage),
             0x05 => read!(ora, zeropage),
@@ -284,14 +286,14 @@ impl Ricoh2A03 {
             0x08 => system!(php),
             0x09 => read!(ora, immediate),
             0x0a => modify!(asl, accumulator),
-            0x0b => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x0b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x0c => noop!(absolute),
             0x0d => read!(ora, absolute),
             0x0e => modify!(asl, absolute),
             0x0f => combine!(asl, ora, absolute),
             0x10 => branch!(negative, false),
             0x11 => read!(ora, indirect_indexed_cross),
-            0x12 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x12 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x13 => combine!(asl, ora, indirect_indexed_cross),
             0x14 => noop!(zeropage_x),
             0x15 => read!(ora, zeropage_x),
@@ -307,7 +309,7 @@ impl Ricoh2A03 {
             0x1f => combine!(asl, ora, absolute_x),
             0x20 => system!(jsr),
             0x21 => read!(and, indexed_indirect),
-            0x22 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x22 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x23 => combine!(rol, and, indexed_indirect),
             0x24 => read!(bit, zeropage),
             0x25 => read!(and, zeropage),
@@ -316,14 +318,14 @@ impl Ricoh2A03 {
             0x28 => system!(plp),
             0x29 => read!(and, immediate),
             0x2a => modify!(rol, accumulator),
-            0x2b => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x2b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x2c => read!(bit, absolute),
             0x2d => read!(and, absolute),
             0x2e => modify!(rol, absolute),
             0x2f => combine!(rol, and, absolute),
             0x30 => branch!(negative, true),
             0x31 => read!(and, indirect_indexed_cross),
-            0x32 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x32 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x33 => combine!(rol, and, indirect_indexed_cross),
             0x34 => noop!(zeropage_x),
             0x35 => read!(and, zeropage_x),
@@ -339,7 +341,7 @@ impl Ricoh2A03 {
             0x3f => combine!(rol, and, absolute_x),
             0x40 => system!(rti),
             0x41 => read!(eor, indexed_indirect),
-            0x42 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x42 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x43 => combine!(lsr, eor, indexed_indirect),
             0x44 => noop!(zeropage),
             0x45 => read!(eor, zeropage),
@@ -348,14 +350,14 @@ impl Ricoh2A03 {
             0x48 => system!(pha),
             0x49 => read!(eor, immediate),
             0x4a => modify!(lsr, accumulator),
-            0x4b => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x4b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x4c => address!(jmp, absolute),
             0x4d => read!(eor, absolute),
             0x4e => modify!(lsr, absolute),
             0x4f => combine!(lsr, eor, absolute),
             0x50 => branch!(overflow, false),
             0x51 => read!(eor, indirect_indexed_cross),
-            0x52 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x52 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x53 => combine!(lsr, eor, indirect_indexed_cross),
             0x54 => noop!(zeropage_x),
             0x55 => read!(eor, zeropage_x),
@@ -371,7 +373,7 @@ impl Ricoh2A03 {
             0x5f => combine!(lsr, eor, absolute_x),
             0x60 => system!(rts),
             0x61 => read!(adc, indexed_indirect),
-            0x62 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x62 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x63 => combine!(ror, adc, indexed_indirect),
             0x64 => noop!(zeropage),
             0x65 => read!(adc, zeropage),
@@ -380,14 +382,14 @@ impl Ricoh2A03 {
             0x68 => system!(pla),
             0x69 => read!(adc, immediate),
             0x6a => modify!(ror, accumulator),
-            0x6b => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x6b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x6c => address!(jmp, indirect),
             0x6d => read!(adc, absolute),
             0x6e => modify!(ror, absolute),
             0x6f => combine!(ror, adc, absolute),
             0x70 => branch!(overflow, true),
             0x71 => read!(adc, indirect_indexed_cross),
-            0x72 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x72 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x73 => combine!(ror, adc, indirect_indexed_cross),
             0x74 => noop!(zeropage_x),
             0x75 => read!(adc, zeropage_x),
@@ -403,7 +405,7 @@ impl Ricoh2A03 {
             0x7f => combine!(ror, adc, absolute_x),
             0x80 => noop!(immediate),
             0x81 => store!(accumulator, indexed_indirect),
-            0x82 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x82 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x83 => store!(a & x, indexed_indirect),
             0x84 => store!(y, zeropage),
             0x85 => store!(accumulator, zeropage),
@@ -412,15 +414,15 @@ impl Ricoh2A03 {
             0x88 => implied!(dey),
             0x89 => noop!(immediate),
             0x8a => transfer!(x, accumulator),
-            0x8b => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x8b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x8c => store!(y, absolute),
             0x8d => store!(accumulator, absolute),
             0x8e => store!(x, absolute),
             0x8f => store!(a & x, absolute),
             0x90 => branch!(carry, false),
             0x91 => store!(accumulator, indirect_indexed),
-            0x92 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
-            0x93 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x92 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
+            0x93 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x94 => store!(y, zeropage_x),
             0x95 => store!(accumulator, zeropage_x),
             0x96 => store!(x, zeropage_y),
@@ -428,11 +430,11 @@ impl Ricoh2A03 {
             0x98 => transfer!(y, accumulator),
             0x99 => store!(accumulator, absolute_y),
             0x9a => transfer!(x, stack_pointer),
-            0x9b => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
-            0x9c => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x9b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
+            0x9c => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x9d => store!(accumulator, absolute_x),
-            0x9e => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
-            0x9f => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0x9e => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
+            0x9f => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xa0 => read!(ldy, immediate),
             0xa1 => read!(lda, indexed_indirect),
             0xa2 => read!(ldx, immediate),
@@ -444,14 +446,14 @@ impl Ricoh2A03 {
             0xa8 => transfer!(accumulator, y),
             0xa9 => read!(lda, immediate),
             0xaa => transfer!(accumulator, x),
-            0xab => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0xab => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xac => read!(ldy, absolute),
             0xad => read!(lda, absolute),
             0xae => read!(ldx, absolute),
             0xaf => read!(lax, absolute),
             0xb0 => branch!(carry, true),
             0xb1 => read!(lda, indirect_indexed_cross),
-            0xb2 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0xb2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xb3 => read!(lax, indirect_indexed_cross),
             0xb4 => read!(ldy, zeropage_x),
             0xb5 => read!(lda, zeropage_x),
@@ -460,14 +462,14 @@ impl Ricoh2A03 {
             0xb8 => set!(overflow, false),
             0xb9 => read!(lda, absolute_y_cross),
             0xba => transfer!(stack_pointer, x),
-            0xbb => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0xbb => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xbc => read!(ldy, absolute_x_cross),
             0xbd => read!(lda, absolute_x_cross),
             0xbe => read!(ldx, absolute_y_cross),
             0xbf => read!(lax, absolute_y_cross),
             0xc0 => read!(cpy, immediate),
             0xc1 => read!(cmp, indexed_indirect),
-            0xc2 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0xc2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xc3 => combine!(dec, cmp, indexed_indirect),
             0xc4 => read!(cpy, zeropage),
             0xc5 => read!(cmp, zeropage),
@@ -476,14 +478,14 @@ impl Ricoh2A03 {
             0xc8 => implied!(iny),
             0xc9 => read!(cmp, immediate),
             0xca => implied!(dex),
-            0xcb => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0xcb => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xcc => read!(cpy, absolute),
             0xcd => read!(cmp, absolute),
             0xce => modify!(dec, absolute),
             0xcf => combine!(dec, cmp, absolute),
             0xd0 => branch!(zero, false),
             0xd1 => read!(cmp, indirect_indexed_cross),
-            0xd2 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0xd2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xd3 => combine!(dec, cmp, indirect_indexed_cross),
             0xd4 => noop!(zeropage_x),
             0xd5 => read!(cmp, zeropage_x),
@@ -499,7 +501,7 @@ impl Ricoh2A03 {
             0xdf => combine!(dec, cmp, absolute_x),
             0xe0 => read!(cpx, immediate),
             0xe1 => read!(sbc, indexed_indirect),
-            0xe2 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0xe2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xe3 => combine!(inc, sbc, indexed_indirect),
             0xe4 => read!(cpx, zeropage),
             0xe5 => read!(sbc, zeropage),
@@ -515,7 +517,7 @@ impl Ricoh2A03 {
             0xef => combine!(inc, sbc, absolute),
             0xf0 => branch!(zero, true),
             0xf1 => read!(sbc, indirect_indexed_cross),
-            0xf2 => unimplemented!("Encountered unimplemented opcode ${:x}", opcode),
+            0xf2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xf3 => combine!(inc, sbc, indirect_indexed_cross),
             0xf4 => noop!(zeropage_x),
             0xf5 => read!(sbc, zeropage_x),
@@ -554,6 +556,16 @@ impl Ricoh2A03 {
             yields().await;
         }
         self.clock.advance(1);
+    }
+
+    /**
+     * Some instructions require an extra cycle if a page boundary is crossed,
+     * to adjust the high byte..
+     */
+    fn cross(&mut self, old_address: u16, new_address: u16) {
+        if old_address.high_byte() != new_address.high_byte() {
+            self.clock.advance(1);
+        }
     }
 
     /**
@@ -596,21 +608,10 @@ impl Ricoh2A03 {
      */
     fn branch(&mut self, offset: u8) {
         self.clock.advance(1);
-        let old_page = self.program_counter.high_byte();
-        let sign = offset.bit(7);
-        let offset = offset.bits(0, 7) as u16;
-
-        self.program_counter = if sign {
-            self.program_counter.wrapping_sub(128 - offset)
-        } else {
-            self.program_counter.wrapping_add(offset)
-        };
-
-        let new_page = self.program_counter.high_byte();
-
-        if old_page != new_page {
-            self.clock.advance(1);
-        }
+        let old_address = self.program_counter;
+        let offset = offset as i8;
+        self.program_counter = self.program_counter.wrapping_add(offset as u16);
+        self.cross(old_address, self.program_counter);
     }
 
     /**
@@ -641,9 +642,7 @@ impl Ricoh2A03 {
     async fn absolute_x_cross(&mut self, bus: &impl Bus) -> u16 {
         let address = self.absolute(bus).await;
         let effective_address = address.wrapping_add(self.x as u16);
-        if address.high_byte() != effective_address.high_byte() {
-            self.clock.advance(1);
-        }
+        self.cross(address, effective_address);
         effective_address
     }
 
@@ -669,9 +668,7 @@ impl Ricoh2A03 {
     async fn absolute_y_cross(&mut self, bus: &impl Bus) -> u16 {
         let address = self.absolute(bus).await;
         let effective_address = address.wrapping_add(self.y as u16);
-        if address.high_byte() != effective_address.high_byte() {
-            self.clock.advance(1);
-        }
+        self.cross(address, effective_address);
         effective_address
     }
 
@@ -760,9 +757,7 @@ impl Ricoh2A03 {
         let high_byte = self.read(bus, zeropage_address.wrapping_add(1) as u16).await;
         let address = u16::from_bytes(low_byte, high_byte);
         let effective_address = address.wrapping_add(self.y as u16);
-        if address.high_byte() != effective_address.high_byte() {
-            self.clock.advance(1);
-        }
+        self.cross(address, effective_address);
         effective_address
     }
 
@@ -826,20 +821,20 @@ impl Ricoh2A03 {
      * Compare X register with memory
      */
     fn cpx(&mut self, operand: u8) {
-        let result = self.x as i16 - operand as i16;
+        let result = self.x.wrapping_sub(operand);
         self.status.zero = result == 0;
-        self.status.carry = result >= 0;
-        self.status.negative = (result as u8).bit(7);
+        self.status.carry = self.x >= operand;
+        self.status.negative = result.bit(7);
     }
 
     /**
      * Compare Y register with memory
      */
     fn cpy(&mut self, operand: u8) {
-        let result = self.y as i16 - operand as i16;
+        let result = self.y.wrapping_sub(operand);
         self.status.zero = result == 0;
-        self.status.carry = result >= 0;
-        self.status.negative = (result as u8).bit(7);
+        self.status.carry = self.y >= operand;
+        self.status.negative = result.bit(7);
     }
 
     /**
@@ -1016,8 +1011,7 @@ impl Ricoh2A03 {
      * Rotate left
      */
     fn rol(&mut self, operand: u8) -> u8 {
-        let mut result = operand << 1;
-        result.change_bit(0, self.status.carry);
+        let result = (operand << 1).change_bit(0, self.status.carry);
         self.status.carry = operand.bit(7);
         self.status.zero = result == 0;
         self.status.negative = result.bit(7);
@@ -1028,8 +1022,7 @@ impl Ricoh2A03 {
      * Rotate right
      */
     fn ror(&mut self, operand: u8) -> u8 {
-        let mut result = operand >> 1;
-        result.change_bit(7, self.status.carry);
+        let result = (operand >> 1).change_bit(7, self.status.carry);
         self.status.carry = operand.bit(0);
         self.status.zero = result == 0;
         self.status.negative = result.bit(7);
@@ -1679,6 +1672,9 @@ mod test {
 
                 futures::executor::block_on(cpu.step(&bus));
             }
+
+            assert_eq!(bus.read(0x0002, &cpu.clock), Some(0x00), "Nestest failed: byte at $02 not $00, documented opcodes wrong");
+            assert_eq!(bus.read(0x0003, &cpu.clock), Some(0x00), "Nestest failed: byte at $03 not $00, illegal opcodes wrong");
         }
     }
 

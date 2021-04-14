@@ -33,17 +33,17 @@ use std::convert::TryInto;
  * twiddling is required, so it is convenient to be able to access bits and
  * ranges of bits easily.
  */
-pub trait Bitwise {
+pub trait Bitwise where Self: std::marker::Sized {
     fn bit(&self, index: usize) -> bool;
     fn bits(&self, index: usize, size: usize) -> Self;
-    fn change_bit(&mut self, index: usize, value: bool);
+    fn change_bit(&self, index: usize, value: bool) -> Self;
 
-    fn set_bit(&mut self, index: usize) {
-        self.change_bit(index, true);
+    fn set_bit(&self, index: usize) -> Self {
+        self.change_bit(index, true)
     }
 
-    fn clear_bit(&mut self, index: usize) {
-        self.change_bit(index, false);
+    fn clear_bit(&self, index: usize) -> Self {
+        self.change_bit(index, false)
     }
 }
 
@@ -60,9 +60,8 @@ impl Bitwise for u8 {
         (self >> index) & mask
     }
 
-    fn change_bit(&mut self, index: usize, value: bool) {
-        *self &= !((1 as Self) << index);
-        *self |= (value as Self) << index;
+    fn change_bit(&self, index: usize, value: bool) -> Self {
+        self & !((1 as Self) << index) | (value as Self) << index
     }
 }
 
@@ -76,11 +75,11 @@ impl Bitwise for u16 {
         (self >> index) & mask
     }
 
-    fn change_bit(&mut self, index: usize, value: bool) {
-        *self &= !((1 as Self) << index);
-        *self |= (value as Self) << index;
+    fn change_bit(&self, index: usize, value: bool) -> Self {
+        self & !((1 as Self) << index) | (value as Self) << index
     }
 }
+
 
 #[cfg(test)]
 mod bitwise {
@@ -93,7 +92,7 @@ mod bitwise {
         let even = 0b01010101u8;
         let upper = 0b11110000u8;
         let lower = 0b00001111u8;
-        let mut change = 0u8;
+        let change = 0u8;
 
         for n in 0..8 {
             assert_eq!(ones.bit(n), true);
@@ -103,13 +102,13 @@ mod bitwise {
             assert_eq!(lower.bit(n), n < 4);
 
             assert_eq!(change.bit(n), false);
-            change.set_bit(n);
+            let change = change.set_bit(n);
             assert_eq!(change.bit(n), true);
-            change.clear_bit(n);
+            let change = change.clear_bit(n);
             assert_eq!(change.bit(n), false);
-            change.change_bit(n, true);
+            let change = change.change_bit(n, true);
             assert_eq!(change.bit(n), true);
-            change.change_bit(n, false);
+            let change = change.change_bit(n, false);
             assert_eq!(change.bit(n), false);
         }
     }
