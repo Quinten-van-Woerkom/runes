@@ -40,12 +40,6 @@ pub struct Clock {
 }
 
 impl Clock {
-    pub fn new() -> Self {
-        Self {
-            current: Cell::new(0)
-        }
-    }
-
     pub fn from(cycle: u64) -> Self {
         Self {
             current: Cell::new(cycle)
@@ -74,20 +68,20 @@ mod clock {
 
     #[test]
     fn initialization() {
-        let clock = Clock::new();
+        let clock = Clock::from(0);
         assert_eq!(clock.current(), 0);
     }
 
     #[test]
     fn count() {
-        let clock = Clock::new();
+        let clock = Clock::from(0);
         clock.advance(3);
         assert_eq!(clock.current(), 3);
     }
 
     #[test]
     fn addition() {
-        let clock = Clock::new();
+        let clock = Clock::from(0);
         clock.advance(3);
         clock.advance(2);
         assert_eq!(clock.current(), 5);
@@ -95,7 +89,7 @@ mod clock {
 
     #[test]
     fn persistence() {
-        let clock = Clock::new();
+        let clock = Clock::from(0);
         clock.advance(1);
         assert_eq!(clock.current(), 1);
 
