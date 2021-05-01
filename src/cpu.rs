@@ -238,7 +238,7 @@ impl Ricoh2A03 {
         /**
          * System instructions have an implied addressing mode, but must
          * access the system bus, and are therefore implemented separately for
-         * now.
+         * now, since this means they must be asynchronous.
          */
         macro_rules! system {
             ($instruction:ident) => {{
