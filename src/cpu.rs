@@ -543,7 +543,7 @@ impl Ricoh2A03 {
                 Some(data) => {
                     self.clock.advance(1); break data
                 },
-                _ => yields().await,
+                None => yields().await,
             }
         }
     }
