@@ -123,7 +123,7 @@ impl Ricoh2A03 {
          * Describes the manner in which the effective address is obtained for
          * different addressing modes.
          */
-        macro_rules! addressing {
+        macro_rules! address {
             // Immediate addressing loads the byte straight after the opcode as
             // operand.
             (immediate) => {{
@@ -144,14 +144,14 @@ impl Ricoh2A03 {
             // address obtained from absolute addressing. Write instructions or read
             // instructions crossing a page boundary take one extra cycle.
             (absolute, $index:ident) => {{
-                let address = addressing!(absolute);
+                let address = address!(absolute);
                 let effective_address = address.wrapping_add(self.$index as u16);
                 self.clock.advance(1);
                 effective_address
             }};
 
             (absolute, $index:ident, cross) => {{
-                let address = addressing!(absolute);
+                let address = address!(absolute);
                 let effective_address = address.wrapping_add(self.$index as u16);
                 self.cross(address, effective_address);
                 effective_address
@@ -180,7 +180,7 @@ impl Ricoh2A03 {
             // correctly cross that page boundary, e.g. $00ff reads from ($00ff, $0000)
             // instead of ($00ff, $0100).
             (indirect) => {{
-                let low_address = addressing!(absolute);
+                let low_address = address!(absolute);
                 let high_address = Word::from_bytes(
                     low_address.low_byte().wrapping_add(1),
                     low_address.high_byte()
@@ -193,7 +193,7 @@ impl Ricoh2A03 {
             // Indexed indirect reads the 16-bit target address from the memory found
             // at a zero page X-indexed address.
             (indirect, x) => {{
-                let address = addressing!(zeropage, x);
+                let address = address!(zeropage, x);
                 let low_byte = self.read(bus, address as u16).await;
                 let high_byte = self.read(bus, address.wrapping_add(1) as u16).await;
                 <u16 as Word>::from_bytes(low_byte, high_byte)
@@ -204,7 +204,7 @@ impl Ricoh2A03 {
             // If a page boundary is crossed when adding Y, an extra cycle might be
             // used, depending on the instruction.
             (indirect, y) => {{
-                let zeropage_address = addressing!(zeropage);
+                let zeropage_address = address!(zeropage);
                 let low_byte = self.read(bus, zeropage_address as u16).await;
                 let high_byte = self.read(bus, zeropage_address.wrapping_add(1) as u16).await;
                 let address = u16::from_bytes(low_byte, high_byte);
@@ -214,13 +214,44 @@ impl Ricoh2A03 {
             }};
 
             (indirect, y, cross) => {{
-                let zeropage_address = addressing!(zeropage);
+                let zeropage_address = address!(zeropage);
                 let low_byte = self.read(bus, zeropage_address as u16).await;
                 let high_byte = self.read(bus, zeropage_address.wrapping_add(1) as u16).await;
                 let address = u16::from_bytes(low_byte, high_byte);
                 let effective_address = address.wrapping_add(self.y as u16);
                 self.cross(address, effective_address);
                 effective_address
+            }};
+        }
+
+        /**
+         * Some instructions operate on an operand, obtained directly by reading
+         * directly from the obtained address on the address bus.
+         */
+        macro_rules! operand {
+            (accumulator) => {{
+                ((), self.accumulator)
+            }};
+
+            ($($addressing:ident),+) => {{
+                let address = address!($($addressing),+) as u16;
+                (address, self.read(bus, address).await)
+            }};
+        }
+
+        /**
+         * Depending on the addressing mode, writing back to the operand must
+         * be done in one of several different manners.
+         */
+        macro_rules! write {
+            ($_address:expr, $result:expr, accumulator) => {{
+                self.clock.advance(1);
+                self.accumulator = $result;
+            }};
+
+            ($address:expr, $result:expr, $($addressing:ident),+) => {{
+                self.clock.advance(1);
+                self.write(bus, $address, $result).await;
             }};
         }
 
@@ -259,23 +290,9 @@ impl Ricoh2A03 {
          */
         macro_rules! read {
             ($instruction:ident, $($addressing:ident),+) => {{
-                let address = addressing!($($addressing),+) as u16;
-                let operand = self.read(bus, address).await;
+                let (_address, operand) = operand!($($addressing),+);
                 self.$instruction(operand);
             }};
-        }
-
-        /**
-         * Load instructions 
-         */
-        macro_rules! load {
-            ($register:ident, $($addressing:ident),+) => {{
-                let address = addressing!($($addressing),+) as u16;
-                let operand = self.read(bus, address).await;
-                self.$register = operand;
-                self.status.zero = self.$register == 0;
-                self.status.negative = self.$register.bit(7);
-            }}
         }
 
         /**
@@ -284,28 +301,22 @@ impl Ricoh2A03 {
          * depending on the addressing mode.
          */
         macro_rules! modify {
-            ($instruction:ident, accumulator) => {{
-                let operand = self.accumulator;
-                self.clock.advance(1);
-                self.accumulator = self.$instruction(operand);
-            }};
-
             ($instruction:ident, $($addressing:ident),+) => {{
-                let address = addressing!($($addressing),+) as u16;
-                let operand = self.read(bus, address).await;
+                let (_address, operand) = operand!($($addressing),+);
                 let result = self.$instruction(operand);
-                self.clock.advance(1);
-                self.write(bus, address, result).await;
-            }};
+                write!(_address, result, $($addressing),+);
+            }}
         }
 
         /**
-         * Some instructions operate on an address.
+         * Load instructions 
          */
-        macro_rules! address {
-            ($instruction:ident, $($addressing:ident),+) => {{
-                let address = addressing!($($addressing),+);
-                self.$instruction(address);
+        macro_rules! load {
+            ($register:ident, $($addressing:ident),+) => {{
+                let (_address, operand) = operand!($($addressing),+);
+                self.$register = operand;
+                self.status.zero = self.$register == 0;
+                self.status.negative = self.$register.bit(7);
             }}
         }
 
@@ -316,12 +327,12 @@ impl Ricoh2A03 {
          */
         macro_rules! store {
             (a & x, $($addressing:ident),+) => {{
-                let address = addressing!($($addressing),+) as u16;
+                let address = address!($($addressing),+) as u16;
                 self.write(bus, address, self.accumulator & self.x).await;
             }};
 
             ($register:ident, $($addressing:ident),+) => {{
-                let address = addressing!($($addressing),+) as u16;
+                let address = address!($($addressing),+) as u16;
                 self.write(bus, address, self.$register).await;
             }};
         }
@@ -346,74 +357,179 @@ impl Ricoh2A03 {
         }
 
         /**
-         * Some operations have an implied addressing mode.
-         * Although they do not use the instruction operand, the 6502 still
-         * uses a cycle to read it, after which it is directly discarded.
-         */
-        macro_rules! implied {
-            ($instruction:ident) => {{
-                self.clock.advance(1);
-                self.$instruction();
-            }}
-        }
-
-        /**
-         * System instructions have an implied addressing mode, but must
-         * access the system bus, and are therefore implemented separately for
-         * now, since this means they must be asynchronous.
-         */
-        macro_rules! system {
-            ($instruction:ident) => {{
-                self.$instruction(bus).await;
-            }}
-        }
-
-        /**
-         * Among undocumented opcodes, some NOP instructions exist with
-         * specific addressing modes. These do nothing but reading the value
-         * of the operand, after which it is discarded.
-         */
-        macro_rules! noop {
-            (implied) => {{
-                self.clock.advance(1);
-            }};
-            
-            ($($addressing:ident),+) => {{
-                let address = addressing!($($addressing),+) as u16;
-                let _operand = self.read(bus, address).await;
-            }};
-        }
-
-        /**
          * Some undocumented opcodes are essentially combinations of two
          * documented instructions, one being read-modify-write, followed by
          * a read instruction.
          */
         macro_rules! combine {
             ($write:ident, $read:ident, $($addressing:ident),+) => {{
-                let address = addressing!($($addressing),+) as u16;
-                let operand = self.read(bus, address).await;
+                let (address, operand) = operand!($($addressing),+);
                 let result = self.$write(operand);
-                self.clock.advance(1);
-                self.write(bus, address, result).await;
+                write!(address, result, $($addressing),+);
                 self.$read(result);
             }}
         }
 
+        /**
+         * NOP - No operation
+         * Among undocumented opcodes, some NOP instructions exist with
+         * specific addressing modes. These do nothing but reading the value
+         * of the operand, after which it is discarded.
+         */
+        macro_rules! nop {
+            () => {{
+                self.clock.advance(1);
+            }};
+
+            ($($addressing:ident),+) => {{
+                let address = address!($($addressing),+) as u16;
+                let _operand = self.read(bus, address).await;
+            }}
+        }
+
+        /**
+         * Decrementing instructions
+         */
+        macro_rules! decrement {
+            ($register:ident) => {{
+                self.clock.advance(1);
+                self.$register = self.$register.wrapping_sub(1);
+                self.status.zero = self.$register == 0;
+                self.status.negative = self.$register.bit(7);
+            }}
+        }
+
+        /**
+         * Incrementing instructions
+         */
+        macro_rules! increment {
+            ($register:ident) => {{
+                self.clock.advance(1);
+                self.$register = self.$register.wrapping_add(1);
+                self.status.zero = self.$register == 0;
+                self.status.negative = self.$register.bit(7);
+            }}
+        }
+
+        /**
+         * Compare register with memory
+         */
+        macro_rules! compare {
+            ($register:ident, $($addressing:ident),+) => {{
+                let (_address, operand) = operand!($($addressing),+);
+                let result = self.$register.wrapping_sub(operand);
+                self.status.zero = result == 0;
+                self.status.carry = self.$register >= operand;
+                self.status.negative = result.bit(7);
+            }}
+        }
+
+        /**
+         * Instructions are generated based on macros, since most share common
+         * suboperations among them.
+         */
+        macro_rules! instruction {
+            // BIT - Bit test
+            (bit, $($addressing:ident),+) => {{
+                let (_address, operand) = operand!($($addressing),+);
+                let result = self.accumulator & operand;
+                self.status.zero = result == 0;
+                self.status.overflow = operand.bit(6);
+                self.status.negative = operand.bit(7);
+            }};
+            
+            // BRK - Force interrupt
+            (brk) => {{
+                self.clock.advance(1); // Dummy read
+                self.push(bus, self.program_counter.high_byte()).await;
+                self.push(bus, self.program_counter.low_byte()).await;
+                self.push(bus, self.status.instruction_value()).await;
+                self.program_counter = Word::from_bytes(
+                    self.read(bus, 0xfffe).await,
+                    self.read(bus, 0xffff).await
+                );
+            }};
+
+            // JMP - Jump
+            (jmp, $($addressing:ident),+) => {{
+                let address = address!($($addressing),+);
+                self.program_counter = address;
+            }};
+            
+            // JSR - Jump to subroutine
+            (jsr) => {{
+                let low_byte = self.fetch(bus).await;
+                let high_byte = self.fetch(bus).await;
+                let address = Word::from_bytes(low_byte, high_byte);
+                self.program_counter = self.program_counter.wrapping_sub(1);
+                self.push(bus, self.program_counter.high_byte()).await;
+                self.push(bus, self.program_counter.low_byte()).await;
+                self.clock.advance(1);
+                self.program_counter = address;
+            }};
+
+            // PHA - Push accumulator
+            (pha) => {{
+                self.clock.advance(1);
+                self.push(bus, self.accumulator).await;
+            }};
+
+            // PHP - Push processor status
+            (php) => {{
+                self.clock.advance(1);
+                self.push(bus, self.status.instruction_value()).await;
+            }};
+
+            // PLA - Pull accumulator
+            (pla) => {{
+                self.clock.advance(2);
+                self.accumulator = self.pull(bus).await;
+                self.status.zero = self.accumulator == 0;
+                self.status.negative = self.accumulator.bit(7);
+            }};
+
+            // PLP - Pull processor status
+            (plp) => {{
+                self.clock.advance(2);
+                self.status = Status::from(self.pull(bus).await);
+            }};
+
+            // RTI - Return from interrupt
+            (rti) => {{
+                self.clock.advance(2); // Dummy read and pre-decrement of stack pointer
+                self.status = Status::from(self.pull(bus).await);
+                self.program_counter = Word::from_bytes(
+                    self.pull(bus).await,
+                    self.pull(bus).await
+                );
+            }};
+
+            // RTS - Return from subroutine
+            (rts) => {{
+                self.clock.advance(2); // Dummy read and pre-increment of stack pointer
+                self.program_counter = <u16 as Word>::from_bytes(
+                    self.pull(bus).await,
+                    self.pull(bus).await
+                ).wrapping_add(1);
+                self.clock.advance(1);
+            }};
+        }
+
+
         match opcode {
-            0x00 => system!(brk),
+            0x00 => instruction!(brk),
             0x01 => read!(ora, indirect, x),
-            0x02 => noop!(implied), // In reality, halts the machine
+            0x02 => nop!(), // In reality, halts the machine
             0x03 => combine!(asl, ora, indirect, x),
-            0x04 => noop!(zeropage),
+            0x04 => nop!(zeropage),
             0x05 => read!(ora, zeropage),
             0x06 => modify!(asl, zeropage),
             0x07 => combine!(asl, ora, zeropage),
-            0x08 => system!(php),
+            0x08 => instruction!(php),
             0x09 => read!(ora, immediate),
             0x0a => modify!(asl, accumulator),
             0x0b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
-            0x0c => noop!(absolute),
+            0x0c => nop!(absolute),
             0x0d => read!(ora, absolute),
             0x0e => modify!(asl, absolute),
             0x0f => combine!(asl, ora, absolute),
@@ -421,31 +537,31 @@ impl Ricoh2A03 {
             0x11 => read!(ora, indirect, y, cross),
             0x12 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x13 => combine!(asl, ora, indirect, y, cross),
-            0x14 => noop!(zeropage, x),
+            0x14 => nop!(zeropage, x),
             0x15 => read!(ora, zeropage, x),
             0x16 => modify!(asl, zeropage, x),
             0x17 => combine!(asl, ora, zeropage, x),
             0x18 => set!(carry, false),
             0x19 => read!(ora, absolute, y, cross),
-            0x1a => noop!(implied),
+            0x1a => nop!(),
             0x1b => combine!(asl, ora, absolute, y, cross),
-            0x1c => noop!(absolute, x, cross),
+            0x1c => nop!(absolute, x, cross),
             0x1d => read!(ora, absolute, x, cross),
             0x1e => modify!(asl, absolute, x),
             0x1f => combine!(asl, ora, absolute, x),
-            0x20 => system!(jsr),
+            0x20 => instruction!(jsr),
             0x21 => read!(and, indirect, x),
             0x22 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x23 => combine!(rol, and, indirect, x),
-            0x24 => read!(bit, zeropage),
+            0x24 => instruction!(bit, zeropage),
             0x25 => read!(and, zeropage),
             0x26 => modify!(rol, zeropage),
             0x27 => combine!(rol, and, zeropage),
-            0x28 => system!(plp),
+            0x28 => instruction!(plp),
             0x29 => read!(and, immediate),
             0x2a => modify!(rol, accumulator),
             0x2b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
-            0x2c => read!(bit, absolute),
+            0x2c => instruction!(bit, absolute),
             0x2d => read!(and, absolute),
             0x2e => modify!(rol, absolute),
             0x2f => combine!(rol, and, absolute),
@@ -453,31 +569,31 @@ impl Ricoh2A03 {
             0x31 => read!(and, indirect, y, cross),
             0x32 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x33 => combine!(rol, and, indirect, y, cross),
-            0x34 => noop!(zeropage, x),
+            0x34 => nop!(zeropage, x),
             0x35 => read!(and, zeropage, x),
             0x36 => modify!(rol, zeropage, x),
             0x37 => combine!(rol, and, zeropage, x),
             0x38 => set!(carry, true),
             0x39 => read!(and, absolute, y, cross),
-            0x3a => noop!(implied),
+            0x3a => nop!(),
             0x3b => combine!(rol, and, absolute, y, cross),
-            0x3c => noop!(absolute, x, cross),
+            0x3c => nop!(absolute, x, cross),
             0x3d => read!(and, absolute, x, cross),
             0x3e => modify!(rol, absolute, x),
             0x3f => combine!(rol, and, absolute, x),
-            0x40 => system!(rti),
+            0x40 => instruction!(rti),
             0x41 => read!(eor, indirect, x),
             0x42 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x43 => combine!(lsr, eor, indirect, x),
-            0x44 => noop!(zeropage),
+            0x44 => nop!(zeropage),
             0x45 => read!(eor, zeropage),
             0x46 => modify!(lsr, zeropage),
             0x47 => combine!(lsr, eor, zeropage),
-            0x48 => system!(pha),
+            0x48 => instruction!(pha),
             0x49 => read!(eor, immediate),
             0x4a => modify!(lsr, accumulator),
             0x4b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
-            0x4c => address!(jmp, absolute),
+            0x4c => instruction!(jmp, absolute),
             0x4d => read!(eor, absolute),
             0x4e => modify!(lsr, absolute),
             0x4f => combine!(lsr, eor, absolute),
@@ -485,31 +601,31 @@ impl Ricoh2A03 {
             0x51 => read!(eor, indirect, y, cross),
             0x52 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x53 => combine!(lsr, eor, indirect, y, cross),
-            0x54 => noop!(zeropage, x),
+            0x54 => nop!(zeropage, x),
             0x55 => read!(eor, zeropage, x),
             0x56 => modify!(lsr, zeropage, x),
             0x57 => combine!(lsr, eor, zeropage, x),
             0x58 => set!(interrupt_disable, false),
             0x59 => read!(eor, absolute, y, cross),
-            0x5a => noop!(implied),
+            0x5a => nop!(),
             0x5b => combine!(lsr, eor, absolute, y, cross),
-            0x5c => noop!(absolute, x, cross),
+            0x5c => nop!(absolute, x, cross),
             0x5d => read!(eor, absolute, x, cross),
             0x5e => modify!(lsr, absolute, x),
             0x5f => combine!(lsr, eor, absolute, x),
-            0x60 => system!(rts),
+            0x60 => instruction!(rts),
             0x61 => read!(adc, indirect, x),
             0x62 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x63 => combine!(ror, adc, indirect, x),
-            0x64 => noop!(zeropage),
+            0x64 => nop!(zeropage),
             0x65 => read!(adc, zeropage),
             0x66 => modify!(ror, zeropage),
             0x67 => combine!(ror, adc, zeropage),
-            0x68 => system!(pla),
+            0x68 => instruction!(pla),
             0x69 => read!(adc, immediate),
             0x6a => modify!(ror, accumulator),
             0x6b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
-            0x6c => address!(jmp, indirect),
+            0x6c => instruction!(jmp, indirect),
             0x6d => read!(adc, absolute),
             0x6e => modify!(ror, absolute),
             0x6f => combine!(ror, adc, absolute),
@@ -517,19 +633,19 @@ impl Ricoh2A03 {
             0x71 => read!(adc, indirect, y, cross),
             0x72 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x73 => combine!(ror, adc, indirect, y, cross),
-            0x74 => noop!(zeropage, x),
+            0x74 => nop!(zeropage, x),
             0x75 => read!(adc, zeropage, x),
             0x76 => modify!(ror, zeropage, x),
             0x77 => combine!(ror, adc, zeropage, x),
             0x78 => set!(interrupt_disable, true),
             0x79 => read!(adc, absolute, y, cross),
-            0x7a => noop!(implied),
+            0x7a => nop!(),
             0x7b => combine!(ror, adc, absolute, y, cross),
-            0x7c => noop!(absolute, x, cross),
+            0x7c => nop!(absolute, x, cross),
             0x7d => read!(adc, absolute, x, cross),
             0x7e => modify!(ror, absolute, x),
             0x7f => combine!(ror, adc, absolute, x),
-            0x80 => noop!(immediate),
+            0x80 => nop!(immediate),
             0x81 => store!(accumulator, indirect, x),
             0x82 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x83 => store!(a & x, indirect, x),
@@ -537,8 +653,8 @@ impl Ricoh2A03 {
             0x85 => store!(accumulator, zeropage),
             0x86 => store!(x, zeropage),
             0x87 => store!(a & x, zeropage),
-            0x88 => implied!(dey),
-            0x89 => noop!(immediate),
+            0x88 => decrement!(y),
+            0x89 => nop!(immediate),
             0x8a => transfer!(x, accumulator),
             0x8b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x8c => store!(y, absolute),
@@ -593,19 +709,19 @@ impl Ricoh2A03 {
             0xbd => load!(accumulator, absolute, x, cross),
             0xbe => load!(x, absolute, y, cross),
             0xbf => read!(lax, absolute, y, cross),
-            0xc0 => read!(cpy, immediate),
+            0xc0 => compare!(y, immediate),
             0xc1 => read!(cmp, indirect, x),
             0xc2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xc3 => combine!(dec, cmp, indirect, x),
-            0xc4 => read!(cpy, zeropage),
+            0xc4 => compare!(y, zeropage),
             0xc5 => read!(cmp, zeropage),
             0xc6 => modify!(dec, zeropage),
             0xc7 => combine!(dec, cmp, zeropage),
-            0xc8 => implied!(iny),
+            0xc8 => increment!(y),
             0xc9 => read!(cmp, immediate),
-            0xca => implied!(dex),
+            0xca => decrement!(x),
             0xcb => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
-            0xcc => read!(cpy, absolute),
+            0xcc => compare!(y, absolute),
             0xcd => read!(cmp, absolute),
             0xce => modify!(dec, absolute),
             0xcf => combine!(dec, cmp, absolute),
@@ -613,31 +729,31 @@ impl Ricoh2A03 {
             0xd1 => read!(cmp, indirect, y, cross),
             0xd2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xd3 => combine!(dec, cmp, indirect, y, cross),
-            0xd4 => noop!(zeropage, x),
+            0xd4 => nop!(zeropage, x),
             0xd5 => read!(cmp, zeropage, x),
             0xd6 => modify!(dec, zeropage, x),
             0xd7 => combine!(dec, cmp, zeropage, x),
             0xd8 => set!(decimal_mode, false),
             0xd9 => read!(cmp, absolute, y, cross),
-            0xda => noop!(implied),
+            0xda => nop!(),
             0xdb => combine!(dec, cmp, absolute, y, cross),
-            0xdc => noop!(absolute, x, cross),
+            0xdc => nop!(absolute, x, cross),
             0xdd => read!(cmp, absolute, x, cross),
             0xde => modify!(dec, absolute, x),
             0xdf => combine!(dec, cmp, absolute, x),
-            0xe0 => read!(cpx, immediate),
+            0xe0 => compare!(x, immediate),
             0xe1 => read!(sbc, indirect, x),
             0xe2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xe3 => combine!(inc, sbc, indirect, x),
-            0xe4 => read!(cpx, zeropage),
+            0xe4 => compare!(x, zeropage),
             0xe5 => read!(sbc, zeropage),
             0xe6 => modify!(inc, zeropage),
             0xe7 => combine!(inc, sbc, zeropage),
-            0xe8 => implied!(inx),
+            0xe8 => increment!(x),
             0xe9 => read!(sbc, immediate),
-            0xea => noop!(implied),
+            0xea => nop!(),
             0xeb => read!(sbc, immediate),
-            0xec => read!(cpx, absolute),
+            0xec => compare!(x, absolute),
             0xed => read!(sbc, absolute),
             0xee => modify!(inc, absolute),
             0xef => combine!(inc, sbc, absolute),
@@ -645,15 +761,15 @@ impl Ricoh2A03 {
             0xf1 => read!(sbc, indirect, y, cross),
             0xf2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xf3 => combine!(inc, sbc, indirect, y, cross),
-            0xf4 => noop!(zeropage, x),
+            0xf4 => nop!(zeropage, x),
             0xf5 => read!(sbc, zeropage, x),
             0xf6 => modify!(inc, zeropage, x),
             0xf7 => combine!(inc, sbc, zeropage, x),
             0xf8 => set!(decimal_mode, true),
             0xf9 => read!(sbc, absolute, y, cross),
-            0xfa => noop!(implied),
+            0xfa => nop!(),
             0xfb => combine!(inc, sbc, absolute, y, cross),
-            0xfc => noop!(absolute, x, cross),
+            0xfc => nop!(absolute, x, cross),
             0xfd => read!(sbc, absolute, x, cross),
             0xfe => modify!(inc, absolute, x),
             0xff => combine!(inc, sbc, absolute, x),
@@ -759,42 +875,12 @@ impl Ricoh2A03 {
     }
 
     /**
-     * Bit test
-     */
-    fn bit(&mut self, operand: u8) {
-        let result = self.accumulator & operand;
-        self.status.zero = result == 0;
-        self.status.overflow = operand.bit(6);
-        self.status.negative = operand.bit(7);
-    }
-
-    /**
      * Compare accumulator with memory
      */
     fn cmp(&mut self, operand: u8) {
         let result = self.accumulator.wrapping_sub(operand);
         self.status.zero = result == 0;
         self.status.carry = self.accumulator >= operand;
-        self.status.negative = result.bit(7);
-    }
-
-    /**
-     * Compare X register with memory
-     */
-    fn cpx(&mut self, operand: u8) {
-        let result = self.x.wrapping_sub(operand);
-        self.status.zero = result == 0;
-        self.status.carry = self.x >= operand;
-        self.status.negative = result.bit(7);
-    }
-
-    /**
-     * Compare Y register with memory
-     */
-    fn cpy(&mut self, operand: u8) {
-        let result = self.y.wrapping_sub(operand);
-        self.status.zero = result == 0;
-        self.status.carry = self.y >= operand;
         self.status.negative = result.bit(7);
     }
 
@@ -806,24 +892,6 @@ impl Ricoh2A03 {
         self.status.zero = result == 0;
         self.status.negative = result.bit(7);
         result
-    }
-
-    /**
-     * Decrement X register
-     */
-    fn dex(&mut self) {
-        self.x = self.x.wrapping_sub(1);
-        self.status.zero = self.x == 0;
-        self.status.negative = self.x.bit(7);
-    }
-
-    /**
-     * Decrement Y register
-     */
-    fn dey(&mut self) {
-        self.y = self.y.wrapping_sub(1);
-        self.status.zero = self.y == 0;
-        self.status.negative = self.y.bit(7);
     }
 
     /**
@@ -846,45 +914,6 @@ impl Ricoh2A03 {
     }
 
     /**
-     * Increment X register
-     */
-    fn inx(&mut self) {
-        self.x = self.x.wrapping_add(1);
-        self.status.zero = self.x == 0;
-        self.status.negative = self.x.bit(7);
-    }
-
-    /**
-     * Increment Y register
-     */
-    fn iny(&mut self) {
-        self.y = self.y.wrapping_add(1);
-        self.status.zero = self.y == 0;
-        self.status.negative = self.y.bit(7);
-    }
-
-    /**
-     * Jump to address
-     */
-    fn jmp(&mut self, address: u16) {
-        self.program_counter = address;
-    }
-
-    /**
-     * Jump to subroutine
-     */
-    async fn jsr(&mut self, bus: &impl Bus) {
-        let low_byte = self.fetch(bus).await;
-        let high_byte = self.fetch(bus).await;
-        let address = Word::from_bytes(low_byte, high_byte);
-        self.program_counter = self.program_counter.wrapping_sub(1);
-        self.push(bus, self.program_counter.high_byte()).await;
-        self.push(bus, self.program_counter.low_byte()).await;
-        self.clock.advance(1);
-        self.program_counter = address;
-    }
-
-    /**
      * Logical shift right
      */
     fn lsr(&mut self, operand: u8) -> u8 {
@@ -902,40 +931,6 @@ impl Ricoh2A03 {
         self.accumulator |= operand;
         self.status.zero = self.accumulator == 0;
         self.status.negative = self.accumulator.bit(7);
-    }
-
-    /**
-     * Push accumulator
-     */
-    async fn pha(&mut self, bus: &impl Bus) {
-        self.clock.advance(1);
-        self.push(bus, self.accumulator).await;
-    }
-
-    /**
-     * Push processor status
-     */
-    async fn php(&mut self, bus: &impl Bus) {
-        self.clock.advance(1);
-        self.push(bus, self.status.instruction_value()).await;
-    }
-
-    /**
-     * Pull accumulator
-     */
-    async fn pla(&mut self, bus: &impl Bus) {
-        self.clock.advance(2);
-        self.accumulator = self.pull(bus).await;
-        self.status.zero = self.accumulator == 0;
-        self.status.negative = self.accumulator.bit(7);
-    }
-
-    /**
-     * Pull processor status
-     */
-    async fn plp(&mut self, bus: &impl Bus) {
-        self.clock.advance(2);
-        self.status = Status::from(self.pull(bus).await);
     }
 
     /**
@@ -961,50 +956,12 @@ impl Ricoh2A03 {
     }
 
     /**
-     * Return from interrupt
-     */
-    async fn rti(&mut self, bus: &impl Bus) {
-        self.clock.advance(2); // Dummy read and pre-decrement of stack pointer
-        self.status = Status::from(self.pull(bus).await);
-        self.program_counter = Word::from_bytes(
-            self.pull(bus).await,
-            self.pull(bus).await
-        );
-    }
-
-    /**
-     * Return from subroutine
-     */
-    async fn rts(&mut self, bus: &impl Bus) {
-        self.clock.advance(2); // Dummy read and pre-increment of stack pointer
-        self.program_counter = <u16 as Word>::from_bytes(
-            self.pull(bus).await,
-            self.pull(bus).await
-        ).wrapping_add(1);
-        self.clock.advance(1);
-    }
-
-    /**
      * Subtract with carry
      * Turns out that SBC(x) = ADC(!x), because of the nature of bitwise
      * addition and subtraction for two's complement numbers.
      */
     fn sbc(&mut self, operand: u8) {
         self.adc(!operand);
-    }
-
-    /**
-     * Force interrupt
-     */
-    async fn brk(&mut self, bus: &impl Bus) {
-        self.clock.advance(1); // Dummy read
-        self.push(bus, self.program_counter.high_byte()).await;
-        self.push(bus, self.program_counter.low_byte()).await;
-        self.push(bus, self.status.instruction_value()).await;
-        self.program_counter = Word::from_bytes(
-            self.read(bus, 0xfffe).await,
-            self.read(bus, 0xffff).await
-        );
     }
 
     /**
