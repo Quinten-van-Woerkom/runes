@@ -30,7 +30,7 @@ use crate::yields::yields;
 /**
  * Emulated internals of the Ricoh 2A03.
  */
-#[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct Ricoh2A03 {
     clock: Clock,
     status: Status,
@@ -263,6 +263,19 @@ impl Ricoh2A03 {
                 let operand = self.read(bus, address).await;
                 self.$instruction(operand);
             }};
+        }
+
+        /**
+         * Load instructions 
+         */
+        macro_rules! load {
+            ($register:ident, $($addressing:ident),+) => {{
+                let address = addressing!($($addressing),+) as u16;
+                let operand = self.read(bus, address).await;
+                self.$register = operand;
+                self.status.zero = self.$register == 0;
+                self.status.negative = self.$register.bit(7);
+            }}
         }
 
         /**
@@ -548,37 +561,37 @@ impl Ricoh2A03 {
             0x9d => store!(accumulator, absolute, x),
             0x9e => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x9f => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
-            0xa0 => read!(ldy, immediate),
-            0xa1 => read!(lda, indirect, x),
-            0xa2 => read!(ldx, immediate),
+            0xa0 => load!(y, immediate),
+            0xa1 => load!(accumulator, indirect, x),
+            0xa2 => load!(x, immediate),
             0xa3 => read!(lax, indirect, x),
-            0xa4 => read!(ldy, zeropage),
-            0xa5 => read!(lda, zeropage),
-            0xa6 => read!(ldx, zeropage),
+            0xa4 => load!(y, zeropage),
+            0xa5 => load!(accumulator, zeropage),
+            0xa6 => load!(x, zeropage),
             0xa7 => read!(lax, zeropage),
             0xa8 => transfer!(accumulator, y),
-            0xa9 => read!(lda, immediate),
+            0xa9 => load!(accumulator, immediate),
             0xaa => transfer!(accumulator, x),
             0xab => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
-            0xac => read!(ldy, absolute),
-            0xad => read!(lda, absolute),
-            0xae => read!(ldx, absolute),
+            0xac => load!(y, absolute),
+            0xad => load!(accumulator, absolute),
+            0xae => load!(x, absolute),
             0xaf => read!(lax, absolute),
             0xb0 => branch!(carry, true),
-            0xb1 => read!(lda, indirect, y, cross),
+            0xb1 => load!(accumulator, indirect, y, cross),
             0xb2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xb3 => read!(lax, indirect, y, cross),
-            0xb4 => read!(ldy, zeropage, x),
-            0xb5 => read!(lda, zeropage, x),
-            0xb6 => read!(ldx, zeropage, y),
+            0xb4 => load!(y, zeropage, x),
+            0xb5 => load!(accumulator, zeropage, x),
+            0xb6 => load!(x, zeropage, y),
             0xb7 => read!(lax, zeropage, y),
             0xb8 => set!(overflow, false),
-            0xb9 => read!(lda, absolute, y, cross),
+            0xb9 => load!(accumulator, absolute, y, cross),
             0xba => transfer!(stack_pointer, x),
             0xbb => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
-            0xbc => read!(ldy, absolute, x, cross),
-            0xbd => read!(lda, absolute, x, cross),
-            0xbe => read!(ldx, absolute, y, cross),
+            0xbc => load!(y, absolute, x, cross),
+            0xbd => load!(accumulator, absolute, x, cross),
+            0xbe => load!(x, absolute, y, cross),
             0xbf => read!(lax, absolute, y, cross),
             0xc0 => read!(cpy, immediate),
             0xc1 => read!(cmp, indirect, x),
@@ -872,33 +885,6 @@ impl Ricoh2A03 {
     }
 
     /**
-     * Load accumulator
-     */
-    fn lda(&mut self, operand: u8) {
-        self.accumulator = operand;
-        self.status.zero = self.accumulator == 0;
-        self.status.negative = self.accumulator.bit(7);
-    }
-
-    /**
-     * Load X register
-     */
-    fn ldx(&mut self, operand: u8) {
-        self.x = operand;
-        self.status.zero = self.x == 0;
-        self.status.negative = self.x.bit(7);
-    }
-
-    /**
-     * Load Y register
-     */
-    fn ldy(&mut self, operand: u8) {
-        self.y = operand;
-        self.status.zero = self.y == 0;
-        self.status.negative = self.y.bit(7);
-    }
-
-    /**
      * Logical shift right
      */
     fn lsr(&mut self, operand: u8) -> u8 {
@@ -1061,7 +1047,7 @@ pub trait Bus {
  * required to set/clear them. Only when pushed/pulled, the bools are combined
  * the single byte that they really are.
  */
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(test, derive(Copy, Clone, PartialEq, Eq))]
 struct Status {
     carry: bool,
     zero: bool,
