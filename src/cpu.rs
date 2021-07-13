@@ -36,7 +36,7 @@ pub struct Ricoh2A03 {
     status: Status,
     program_counter: u16,
     stack_pointer: u8,
-    accumulator: u8,
+    a: u8,
     x: u8,
     y: u8,
 }
@@ -46,7 +46,7 @@ impl std::fmt::Debug for Ricoh2A03 {
         write!(f,
             "\n${:04x}\tA:${:02x} X:${:02x} Y:${:02x} P:{:?} SP:${:02x} CYC:{}",
             self.program_counter,
-            self.accumulator,
+            self.a,
             self.x,
             self.y,
             self.status,
@@ -64,7 +64,7 @@ impl Ricoh2A03 {
             program_counter: 0xc000,
             status: Status::new(),
             stack_pointer: 0xfd,
-            accumulator: 0x00,
+            a: 0x00,
             x: 0x00,
             y: 0x00,
         }
@@ -85,7 +85,7 @@ impl Ricoh2A03 {
             skip = state.next().unwrap().strip_prefix("A:");
         }
 
-        let accumulator = u8::from_str_radix(skip.unwrap(), 16).unwrap();
+        let a = u8::from_str_radix(skip.unwrap(), 16).unwrap();
         let x = u8::from_str_radix(state.next().unwrap().strip_prefix("X:").unwrap(), 16).unwrap();
         let y = u8::from_str_radix(state.next().unwrap().strip_prefix("Y:").unwrap(), 16).unwrap();
         let status = u8::from_str_radix(state.next().unwrap().strip_prefix("P:").unwrap(), 16).unwrap();
@@ -96,7 +96,7 @@ impl Ricoh2A03 {
             program_counter,
             status: Status::from(status),
             stack_pointer,
-            accumulator,
+            a,
             x,
             y,
         }
@@ -230,7 +230,7 @@ impl Ricoh2A03 {
          */
         macro_rules! operand {
             (accumulator) => {{
-                ((), self.accumulator)
+                ((), self.a)
             }};
 
             ($($addressing:ident),+) => {{
@@ -246,7 +246,7 @@ impl Ricoh2A03 {
         macro_rules! write {
             ($_address:expr, $result:expr, accumulator) => {{
                 self.clock.advance(1);
-                self.accumulator = $result;
+                self.a = $result;
             }};
 
             ($address:expr, $result:expr, $($addressing:ident),+) => {{
@@ -328,7 +328,7 @@ impl Ricoh2A03 {
         macro_rules! store {
             (a & x, $($addressing:ident),+) => {{
                 let address = address!($($addressing),+) as u16;
-                self.write(bus, address, self.accumulator & self.x).await;
+                self.write(bus, address, self.a & self.x).await;
             }};
 
             ($register:ident, $($addressing:ident),+) => {{
@@ -432,7 +432,7 @@ impl Ricoh2A03 {
             // BIT - Bit test
             (bit, $($addressing:ident),+) => {{
                 let (_address, operand) = operand!($($addressing),+);
-                let result = self.accumulator & operand;
+                let result = self.a & operand;
                 self.status.zero = result == 0;
                 self.status.overflow = operand.bit(6);
                 self.status.negative = operand.bit(7);
@@ -471,7 +471,7 @@ impl Ricoh2A03 {
             // PHA - Push accumulator
             (pha) => {{
                 self.clock.advance(1);
-                self.push(bus, self.accumulator).await;
+                self.push(bus, self.a).await;
             }};
 
             // PHP - Push processor status
@@ -483,9 +483,9 @@ impl Ricoh2A03 {
             // PLA - Pull accumulator
             (pla) => {{
                 self.clock.advance(2);
-                self.accumulator = self.pull(bus).await;
-                self.status.zero = self.accumulator == 0;
-                self.status.negative = self.accumulator.bit(7);
+                self.a = self.pull(bus).await;
+                self.status.zero = self.a == 0;
+                self.status.negative = self.a.bit(7);
             }};
 
             // PLP - Pull processor status
@@ -646,67 +646,67 @@ impl Ricoh2A03 {
             0x7e => modify!(ror, absolute, x),
             0x7f => combine!(ror, adc, absolute, x),
             0x80 => nop!(immediate),
-            0x81 => store!(accumulator, indirect, x),
+            0x81 => store!(a, indirect, x),
             0x82 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x83 => store!(a & x, indirect, x),
             0x84 => store!(y, zeropage),
-            0x85 => store!(accumulator, zeropage),
+            0x85 => store!(a, zeropage),
             0x86 => store!(x, zeropage),
             0x87 => store!(a & x, zeropage),
             0x88 => decrement!(y),
             0x89 => nop!(immediate),
-            0x8a => transfer!(x, accumulator),
+            0x8a => transfer!(x, a),
             0x8b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x8c => store!(y, absolute),
-            0x8d => store!(accumulator, absolute),
+            0x8d => store!(a, absolute),
             0x8e => store!(x, absolute),
             0x8f => store!(a & x, absolute),
             0x90 => branch!(carry, false),
-            0x91 => store!(accumulator, indirect, y),
+            0x91 => store!(a, indirect, y),
             0x92 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x93 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x94 => store!(y, zeropage, x),
-            0x95 => store!(accumulator, zeropage, x),
+            0x95 => store!(a, zeropage, x),
             0x96 => store!(x, zeropage, y),
             0x97 => store!(a & x, zeropage, y),
-            0x98 => transfer!(y, accumulator),
-            0x99 => store!(accumulator, absolute, y),
+            0x98 => transfer!(y, a),
+            0x99 => store!(a, absolute, y),
             0x9a => transfer!(x, stack_pointer),
             0x9b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x9c => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
-            0x9d => store!(accumulator, absolute, x),
+            0x9d => store!(a, absolute, x),
             0x9e => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x9f => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xa0 => load!(y, immediate),
-            0xa1 => load!(accumulator, indirect, x),
+            0xa1 => load!(a, indirect, x),
             0xa2 => load!(x, immediate),
             0xa3 => read!(lax, indirect, x),
             0xa4 => load!(y, zeropage),
-            0xa5 => load!(accumulator, zeropage),
+            0xa5 => load!(a, zeropage),
             0xa6 => load!(x, zeropage),
             0xa7 => read!(lax, zeropage),
-            0xa8 => transfer!(accumulator, y),
-            0xa9 => load!(accumulator, immediate),
-            0xaa => transfer!(accumulator, x),
+            0xa8 => transfer!(a, y),
+            0xa9 => load!(a, immediate),
+            0xaa => transfer!(a, x),
             0xab => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xac => load!(y, absolute),
-            0xad => load!(accumulator, absolute),
+            0xad => load!(a, absolute),
             0xae => load!(x, absolute),
             0xaf => read!(lax, absolute),
             0xb0 => branch!(carry, true),
-            0xb1 => load!(accumulator, indirect, y, cross),
+            0xb1 => load!(a, indirect, y, cross),
             0xb2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xb3 => read!(lax, indirect, y, cross),
             0xb4 => load!(y, zeropage, x),
-            0xb5 => load!(accumulator, zeropage, x),
+            0xb5 => load!(a, zeropage, x),
             0xb6 => load!(x, zeropage, y),
             0xb7 => read!(lax, zeropage, y),
             0xb8 => set!(overflow, false),
-            0xb9 => load!(accumulator, absolute, y, cross),
+            0xb9 => load!(a, absolute, y, cross),
             0xba => transfer!(stack_pointer, x),
             0xbb => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xbc => load!(y, absolute, x, cross),
-            0xbd => load!(accumulator, absolute, x, cross),
+            0xbd => load!(a, absolute, x, cross),
             0xbe => load!(x, absolute, y, cross),
             0xbf => read!(lax, absolute, y, cross),
             0xc0 => compare!(y, immediate),
@@ -846,21 +846,21 @@ impl Ricoh2A03 {
      * stored in the accumulator.
      */
     fn and(&mut self, operand: u8) {
-        self.accumulator &= operand;
-        self.status.zero = self.accumulator == 0;
-        self.status.negative = self.accumulator.bit(7);
+        self.a &= operand;
+        self.status.zero = self.a == 0;
+        self.status.negative = self.a.bit(7);
     }
 
     /**
      * Add with carry.
      */
     fn adc(&mut self, operand: u8) {
-        let result = self.accumulator as u16 + operand as u16 + self.status.carry as u16;
+        let result = self.a as u16 + operand as u16 + self.status.carry as u16;
         self.status.carry = result > 0xff;
         self.status.zero = result.low_byte() == 0;
-        self.status.overflow = (operand.bit(7) == self.accumulator.bit(7)) && (operand.bit(7) != result.bit(7));
+        self.status.overflow = (operand.bit(7) == self.a.bit(7)) && (operand.bit(7) != result.bit(7));
         self.status.negative = result.bit(7);
-        self.accumulator = result.low_byte();
+        self.a = result.low_byte();
     }
 
     /**
@@ -878,9 +878,9 @@ impl Ricoh2A03 {
      * Compare accumulator with memory
      */
     fn cmp(&mut self, operand: u8) {
-        let result = self.accumulator.wrapping_sub(operand);
+        let result = self.a.wrapping_sub(operand);
         self.status.zero = result == 0;
-        self.status.carry = self.accumulator >= operand;
+        self.status.carry = self.a >= operand;
         self.status.negative = result.bit(7);
     }
 
@@ -898,9 +898,9 @@ impl Ricoh2A03 {
      * Exclusive OR
      */
     fn eor(&mut self, operand: u8) {
-        self.accumulator ^= operand;
-        self.status.zero = self.accumulator == 0;
-        self.status.negative = self.accumulator.bit(7);
+        self.a ^= operand;
+        self.status.zero = self.a == 0;
+        self.status.negative = self.a.bit(7);
     }
 
     /**
@@ -928,9 +928,9 @@ impl Ricoh2A03 {
      * Logical inclusive OR
      */
     fn ora(&mut self, operand: u8) {
-        self.accumulator |= operand;
-        self.status.zero = self.accumulator == 0;
-        self.status.negative = self.accumulator.bit(7);
+        self.a |= operand;
+        self.status.zero = self.a == 0;
+        self.status.negative = self.a.bit(7);
     }
 
     /**
@@ -968,7 +968,7 @@ impl Ricoh2A03 {
      * LAX, similar to LDA followed by TAX
      */
     fn lax(&mut self, operand: u8) {
-        self.accumulator = operand;
+        self.a = operand;
         self.x = operand;
         self.status.zero = operand == 0;
         self.status.negative = operand.bit(7);
