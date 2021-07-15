@@ -331,8 +331,7 @@ impl Ricoh2A03 {
         }
 
         /**
-         * Instructions are generated based on macros, since most share common
-         * suboperations among them.
+         * Implied instructions don't have a corresponding addressing mode.
          */
         macro_rules! implied {
             (nop) => {{
@@ -670,7 +669,7 @@ impl Ricoh2A03 {
     }
 
 
-    
+
     /**
      * Logical AND of the accumulator with a byte of memory. The result is
      * stored in the accumulator.
