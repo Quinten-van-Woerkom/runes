@@ -334,10 +334,6 @@ impl Ricoh2A03 {
          * Implied instructions don't have a corresponding addressing mode.
          */
         macro_rules! implied {
-            (nop) => {{
-                self.clock.advance(1);
-            }};
-
             ($instruction:ident) => {{
                 self.$instruction(bus).await;
             }};
@@ -348,7 +344,7 @@ impl Ricoh2A03 {
             0x01 => read!(ora, indirect, x),
             0x02 => implied!(nop), // In reality, halts the machine
             0x03 => combine!(asl, ora, indirect, x),
-            0x04 => read!(nop, zeropage),
+            0x04 => address!(nop, zeropage),
             0x05 => read!(ora, zeropage),
             0x06 => modify!(asl, zeropage),
             0x07 => combine!(asl, ora, zeropage),
@@ -356,7 +352,7 @@ impl Ricoh2A03 {
             0x09 => read!(ora, immediate),
             0x0a => modify!(asl, accumulator),
             0x0b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
-            0x0c => read!(nop, absolute),
+            0x0c => address!(nop, absolute),
             0x0d => read!(ora, absolute),
             0x0e => modify!(asl, absolute),
             0x0f => combine!(asl, ora, absolute),
@@ -364,7 +360,7 @@ impl Ricoh2A03 {
             0x11 => read!(ora, indirect, y, false),
             0x12 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x13 => combine!(asl, ora, indirect, y, true),
-            0x14 => read!(nop, zeropage, x),
+            0x14 => address!(nop, zeropage, x),
             0x15 => read!(ora, zeropage, x),
             0x16 => modify!(asl, zeropage, x),
             0x17 => combine!(asl, ora, zeropage, x),
@@ -372,7 +368,7 @@ impl Ricoh2A03 {
             0x19 => read!(ora, absolute, y, false),
             0x1a => implied!(nop),
             0x1b => combine!(asl, ora, absolute, y, true),
-            0x1c => read!(nop, absolute, x, false),
+            0x1c => address!(nop, absolute, x, false),
             0x1d => read!(ora, absolute, x, false),
             0x1e => modify!(asl, absolute, x, true),
             0x1f => combine!(asl, ora, absolute, x, true),
@@ -396,7 +392,7 @@ impl Ricoh2A03 {
             0x31 => read!(and, indirect, y, false),
             0x32 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x33 => combine!(rol, and, indirect, y, true),
-            0x34 => read!(nop, zeropage, x),
+            0x34 => address!(nop, zeropage, x),
             0x35 => read!(and, zeropage, x),
             0x36 => modify!(rol, zeropage, x),
             0x37 => combine!(rol, and, zeropage, x),
@@ -404,7 +400,7 @@ impl Ricoh2A03 {
             0x39 => read!(and, absolute, y, false),
             0x3a => implied!(nop),
             0x3b => combine!(rol, and, absolute, y, true),
-            0x3c => read!(nop, absolute, x, false),
+            0x3c => address!(nop, absolute, x, false),
             0x3d => read!(and, absolute, x, false),
             0x3e => modify!(rol, absolute, x, true),
             0x3f => combine!(rol, and, absolute, x, true),
@@ -412,7 +408,7 @@ impl Ricoh2A03 {
             0x41 => read!(eor, indirect, x),
             0x42 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x43 => combine!(lsr, eor, indirect, x),
-            0x44 => read!(nop, zeropage),
+            0x44 => address!(nop, zeropage),
             0x45 => read!(eor, zeropage),
             0x46 => modify!(lsr, zeropage),
             0x47 => combine!(lsr, eor, zeropage),
@@ -428,7 +424,7 @@ impl Ricoh2A03 {
             0x51 => read!(eor, indirect, y, false),
             0x52 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x53 => combine!(lsr, eor, indirect, y, true),
-            0x54 => read!(nop, zeropage, x),
+            0x54 => address!(nop, zeropage, x),
             0x55 => read!(eor, zeropage, x),
             0x56 => modify!(lsr, zeropage, x),
             0x57 => combine!(lsr, eor, zeropage, x),
@@ -436,7 +432,7 @@ impl Ricoh2A03 {
             0x59 => read!(eor, absolute, y, false),
             0x5a => implied!(nop),
             0x5b => combine!(lsr, eor, absolute, y, true),
-            0x5c => read!(nop, absolute, x, false),
+            0x5c => address!(nop, absolute, x, false),
             0x5d => read!(eor, absolute, x, false),
             0x5e => modify!(lsr, absolute, x, true),
             0x5f => combine!(lsr, eor, absolute, x, true), // Unsure if this should be cross or not
@@ -444,7 +440,7 @@ impl Ricoh2A03 {
             0x61 => read!(adc, indirect, x),
             0x62 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x63 => combine!(ror, adc, indirect, x),
-            0x64 => read!(nop, zeropage),
+            0x64 => address!(nop, zeropage),
             0x65 => read!(adc, zeropage),
             0x66 => modify!(ror, zeropage),
             0x67 => combine!(ror, adc, zeropage),
@@ -460,7 +456,7 @@ impl Ricoh2A03 {
             0x71 => read!(adc, indirect, y, false),
             0x72 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x73 => combine!(ror, adc, indirect, y, true),
-            0x74 => read!(nop, zeropage, x),
+            0x74 => address!(nop, zeropage, x),
             0x75 => read!(adc, zeropage, x),
             0x76 => modify!(ror, zeropage, x),
             0x77 => combine!(ror, adc, zeropage, x),
@@ -468,11 +464,11 @@ impl Ricoh2A03 {
             0x79 => read!(adc, absolute, y, false),
             0x7a => implied!(nop),
             0x7b => combine!(ror, adc, absolute, y, true), // Unsure if this should be cross or not
-            0x7c => read!(nop, absolute, x, false),
+            0x7c => address!(nop, absolute, x, false),
             0x7d => read!(adc, absolute, x, false),
             0x7e => modify!(ror, absolute, x, true),
             0x7f => combine!(ror, adc, absolute, x, true), // Unsure if this should be cross or not
-            0x80 => read!(nop, immediate),
+            0x80 => address!(nop, immediate),
             0x81 => address!(sta, indirect, x),
             0x82 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x83 => address!(sax, indirect, x),
@@ -481,7 +477,7 @@ impl Ricoh2A03 {
             0x86 => address!(stx, zeropage),
             0x87 => address!(sax, zeropage),
             0x88 => implied!(dey),
-            0x89 => read!(nop, immediate),
+            0x89 => address!(nop, immediate),
             0x8a => implied!(txa),
             0x8b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0x8c => address!(sty, absolute),
@@ -556,7 +552,7 @@ impl Ricoh2A03 {
             0xd1 => read!(cmp, indirect, y, false),
             0xd2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xd3 => combine!(dec, cmp, indirect, y, true),
-            0xd4 => read!(nop, zeropage, x),
+            0xd4 => address!(nop, zeropage, x),
             0xd5 => read!(cmp, zeropage, x),
             0xd6 => modify!(dec, zeropage, x),
             0xd7 => combine!(dec, cmp, zeropage, x),
@@ -564,7 +560,7 @@ impl Ricoh2A03 {
             0xd9 => read!(cmp, absolute, y, false),
             0xda => implied!(nop),
             0xdb => combine!(dec, cmp, absolute, y, true), // Unsure if this should be cross or not
-            0xdc => read!(nop, absolute, x, false),
+            0xdc => address!(nop, absolute, x, false),
             0xdd => read!(cmp, absolute, x, false),
             0xde => modify!(dec, absolute, x, true),
             0xdf => combine!(dec, cmp, absolute, x, true), // Unsure if this should be cross or not
@@ -588,7 +584,7 @@ impl Ricoh2A03 {
             0xf1 => read!(sbc, indirect, y, false),
             0xf2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
             0xf3 => combine!(inc, sbc, indirect, y, true),
-            0xf4 => read!(nop, zeropage, x),
+            0xf4 => address!(nop, zeropage, x),
             0xf5 => read!(sbc, zeropage, x),
             0xf6 => modify!(inc, zeropage, x),
             0xf7 => combine!(inc, sbc, zeropage, x),
@@ -596,7 +592,7 @@ impl Ricoh2A03 {
             0xf9 => read!(sbc, absolute, y, false),
             0xfa => implied!(nop),
             0xfb => combine!(inc, sbc, absolute, y, true),
-            0xfc => read!(nop, absolute, x, false),
+            0xfc => address!(nop, absolute, x, false),
             0xfd => read!(sbc, absolute, x, false),
             0xfe => modify!(inc, absolute, x, true),
             0xff => combine!(inc, sbc, absolute, x, true),
@@ -825,7 +821,9 @@ impl Ricoh2A03 {
     /**
      * No operation
      */
-    async fn nop(&mut self, bus: &impl Bus) {}
+    async fn nop(&mut self, bus: &impl Bus) {
+        self.clock.advance(1);
+    }
 
     /**
      * Logical inclusive OR
