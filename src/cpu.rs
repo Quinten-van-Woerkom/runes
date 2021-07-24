@@ -1119,7 +1119,10 @@ impl<'nes, Memory: Bus> std::fmt::Debug for Ricoh2A03<'nes, Memory> {
  * 
  * Functions return an empty Option only when the addressed memory or device is
  * not yet ready, i.e. if some other device must be emulated further in time
- * first.
+ * first. It would be preferred to directly write them as async functions, but
+ * that is not currently possible in Rust. The async-trait crate would be a
+ * solution, but it has overhead in terms of memory allocations, which add up
+ * to a significant amount when used for every read or write.
  */
 pub trait Bus {
     fn read(&self, address: u16, time: &Clock) -> Option<u8>;
