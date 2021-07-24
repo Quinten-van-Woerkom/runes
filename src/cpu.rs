@@ -453,10 +453,12 @@ impl<'nes, Memory: Bus> Ricoh2A03<'nes, Memory> {
      * Writes to the bus, taking one cycle.
      */
     async fn write(&self, data: u8) {
-        while let None = self.bus.unwrap().write(self.address, data, &self.clock) {
-            yields().await;
+        loop {
+            match self.bus.unwrap().write(self.address, data, &self.clock) {
+                None => yields().await,
+                Some(_) => self.clock.advance(1),
+            }
         }
-        self.clock.advance(1);
     }
 
     /**
