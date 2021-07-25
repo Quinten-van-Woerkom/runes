@@ -28,6 +28,26 @@ use crate::clock::Clock;
 use crate::yields::yields;
 
 /**
+ * Any address bus used with the Ricoh 2A03 must implement this trait to allow
+ * for interoperability. Corresponds with the CPU pinout, conceptually.
+ * 
+ * Functions return an empty Option only when the addressed memory or device is
+ * not yet ready, i.e. if some other device must be emulated further in time
+ * first. It would be preferred to directly write them as async functions, but
+ * that is not currently possible in Rust. The async-trait crate would be a
+ * solution, but it has overhead in terms of memory allocations, which add up
+ * to a significant amount when used for every read or write.
+ */
+pub trait Pinout {
+    fn read(&self, address: u16, clock: &Clock) -> Option<u8>;
+    fn write(&self, address: u16, data: u8, clock: &Clock) -> Option<()>;
+
+    fn nmi(&self, clock: &Clock) -> Option<bool>;
+    fn irq(&self, clock: &Clock) -> Option<bool>;
+    fn reset(&self, clock: &Clock) -> Option<bool>;
+}
+
+/**
  * Emulated internals of the Ricoh 2A03.
  */
 pub struct Ricoh2A03 {
@@ -1274,27 +1294,6 @@ impl Clone for Ricoh2A03 {
             address: self.address,
         }
     }
-}
-
-
-/**
- * Any address bus used with the Ricoh 2A03 must implement this trait to allow
- * for interoperability. Corresponds with the CPU pinout, conceptually.
- * 
- * Functions return an empty Option only when the addressed memory or device is
- * not yet ready, i.e. if some other device must be emulated further in time
- * first. It would be preferred to directly write them as async functions, but
- * that is not currently possible in Rust. The async-trait crate would be a
- * solution, but it has overhead in terms of memory allocations, which add up
- * to a significant amount when used for every read or write.
- */
-pub trait Pinout {
-    fn read(&self, address: u16, clock: &Clock) -> Option<u8>;
-    fn write(&self, address: u16, data: u8, clock: &Clock) -> Option<()>;
-
-    fn nmi(&self, clock: &Clock) -> Option<bool>;
-    fn irq(&self, clock: &Clock) -> Option<bool>;
-    fn reset(&self, clock: &Clock) -> Option<bool>;
 }
 
 
