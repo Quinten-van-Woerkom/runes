@@ -33,7 +33,7 @@ use std::cell::Cell;
  * This means that it also makes for a good synchronization barrier when
  * accessing this memory.
  * 
- * In a small deviation from reality, shared memory must also be accessed`
+ * In a small deviation from reality, shared memory must also be accessed
  * through the bus, even when, in reality, it belongs to the accessing device,
  * like the PPU registers. This is needed to be able to force synchronization.
  */
