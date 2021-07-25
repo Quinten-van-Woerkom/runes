@@ -34,6 +34,11 @@ use std::cell::Cell;
  * accessing this memory. Indeed, the memory keeps track of each processor's
  * clock to synchronize timing.
  * 
+ * Keeping track of processor clocks is done by updating each clock whenever
+ * the corresponding device accesses memory. This is chosen over keeping
+ * references because of the ensuing lifetime issues and to prevent cacheline
+ * contention, since the clocks are updated frequently.
+ * 
  * In a small deviation from reality, shared memory must also be accessed
  * through the bus, even when, in reality, it belongs to the accessing device,
  * like the PPU registers. This is needed to be able to force synchronization.
@@ -63,6 +68,11 @@ impl Memory {
     }
 }
 
+/**
+ * Memory must be accessible for the CPU, which is achieved by emulating its
+ * pinout interface.
+ * For each CPU memory access, the memory's "copy" of the CPU clock is updated.
+ */
 impl cpu::Pinout for Memory {
     fn read(&self, address: u16, clock: &Clock) -> Option<u8> {
         self.cpu.set(clock);
@@ -84,16 +94,28 @@ impl cpu::Pinout for Memory {
         }
     }
 
+    /**
+     * Not yet emulated. For now, updates the clock and acts as if no interrupt
+     * was raised.
+     */
     fn nmi(&self, clock: &Clock) -> Option<bool> {
         self.cpu.set(clock);
         Some(false)
     }
 
+    /**
+     * Not yet emulated. For now, updates the clock and acts as if no interrupt
+     * was raised.
+     */
     fn irq(&self, clock: &Clock) -> Option<bool> {
         self.cpu.set(clock);
         Some(false)
     }
 
+    /**
+     * Not yet emulated. For now, updates the clock and acts as if no interrupt
+     * was raised.
+     */
     fn reset(&self, clock: &Clock) -> Option<bool> {
         self.cpu.set(clock);
         Some(false)
