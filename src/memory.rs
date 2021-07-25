@@ -45,9 +45,6 @@ use std::cell::Cell;
 pub struct Memory {
     ram: [Cell<u8>; 0x800],
     cartridge: Box<dyn Cartridge>,
-    cpu_cycle: Cell<usize>,
-    ppu_cycle: Cell<usize>,
-    apu_cycle: Cell<usize>,
 }
 
 impl Memory {
@@ -60,9 +57,6 @@ impl Memory {
             // Safe because u8 and Cell<u8> have the same memory layout.
             ram: unsafe { std::mem::transmute::<[u8; 0x800], [Cell<u8>; 0x800]>([0u8; 0x800])},
             cartridge: load_cartridge(path)?,
-            cpu_cycle: Cell::from(0),
-            ppu_cycle: Cell::from(0),
-            apu_cycle: Cell::from(0),
         })
     }
 }
@@ -74,7 +68,6 @@ impl Memory {
  */
 impl cpu::Pinout for Memory {
     fn read(&self, address: u16, cycle: usize) -> Option<u8> {
-        self.cpu_cycle.set(cycle);
         match address {
             0x0000..=0x1fff => Some(self.ram[(address % 0x800) as usize].get()),
             0x4020..=0xffff => self.cartridge.cpu_read(address, cycle),
@@ -84,7 +77,6 @@ impl cpu::Pinout for Memory {
     }
 
     fn write(&self, address: u16, data: u8, cycle: usize) -> Option<()> {
-        self.cpu_cycle.set(cycle);
         match address {
             0x0000..=0x1fff => Some(self.ram[(address % 0x800) as usize].set(data)),
             0x4020..=0xffff => self.cartridge.cpu_write(address, data, cycle),
@@ -98,7 +90,6 @@ impl cpu::Pinout for Memory {
      * was raised.
      */
     fn nmi(&self, cycle: usize) -> Option<bool> {
-        self.cpu_cycle.set(cycle);
         Some(false)
     }
 
@@ -107,7 +98,6 @@ impl cpu::Pinout for Memory {
      * was raised.
      */
     fn irq(&self, cycle: usize) -> Option<bool> {
-        self.cpu_cycle.set(cycle);
         Some(false)
     }
 
@@ -116,7 +106,6 @@ impl cpu::Pinout for Memory {
      * was raised.
      */
     fn reset(&self, cycle: usize) -> Option<bool> {
-        self.cpu_cycle.set(cycle);
         Some(false)
     }
 }
