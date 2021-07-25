@@ -1,5 +1,5 @@
 /**
- * bus.rs
+ * memory.rs
  * Part of Rust Nintendo Entertainment System emulator ("RuNES")
  * 
  * Copyright (c) 2021 Quinten van Woerkom
@@ -37,12 +37,12 @@ use std::cell::Cell;
  * through the bus, even when, in reality, it belongs to the accessing device,
  * like the PPU registers. This is needed to be able to force synchronization.
  */
-pub struct Bus {
+pub struct Memory {
     ram: [Cell<u8>; 0x800],
     cartridge: Box<dyn Cartridge>,
 }
 
-impl Bus {
+impl Memory {
     /**
      * Constructs a bus by loading a ROM file into memory.
      * Can fail if file I/O fails or if an incorrect ROM file is passed.
@@ -56,7 +56,7 @@ impl Bus {
     }
 }
 
-impl cpu::Pinout for Bus {
+impl cpu::Pinout for Memory {
     fn read(&self, address: u16, clock: &Clock) -> Option<u8> {
         match address {
             0x0000..=0x1fff => Some(self.ram[(address % 0x800) as usize].get()),
@@ -103,7 +103,7 @@ mod access {
         use std::fs::File;
         use std::io::*;
 
-        let bus = Bus::from_rom("nestest.nes").expect("Unable to load nestest rom");
+        let bus = Memory::from_rom("nestest.nes").expect("Unable to load nestest rom");
         let mut cpu = cpu::Ricoh2A03::new();
         let nintendulator = BufReader::new(File::open("nestest.log").expect("Unable to load nestest log"));
 
