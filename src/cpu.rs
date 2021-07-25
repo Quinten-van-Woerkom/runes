@@ -422,7 +422,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0xc8 => implied!(iny),
             0xc9 => read!(cmp, immediate),
             0xca => implied!(dex),
-            0xcb => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
+            0xcb => read!(axs, immediate),
             0xcc => read!(cpy, absolute),
             0xcd => read!(cmp, absolute),
             0xce => modify!(dec, absolute),
@@ -1179,6 +1179,19 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
         self.status.carry = self.a.bit(6);
         self.status.overflow = self.a.bit(6) ^ self.a.bit(5);
     }
+
+    /**
+     * Sets X to A&X minus immediate value, updating the appropriate arithmetic
+     * flags.
+     * TODO: Implement tests to ensure correctness.
+     */
+    async fn axs(&mut self) {
+        let (result, carry) = (self.a & self.x).overflowing_sub(self.operand);
+        self.x = result;
+        self.status.negative = self.x.bit(7);
+        self.status.zero = self.x == 0;
+        self.status.carry = carry;
+    }
 }
 
 impl<'nes, Memory: Pinout> std::fmt::Debug for Ricoh2A03<'nes, Memory> {
@@ -1636,6 +1649,7 @@ mod instruction_set {
         check_cycles!(0xc8, 2, "INY", "Implied");
         check_cycles!(0xc9, 2, "CMP", "Immediate");
         check_cycles!(0xca, 2, "DEX", "Implied");
+        check_cycles!(0xcb, 2, "AXS", "Immediate");
         check_cycles!(0xcc, 4, "CPY", "Absolute");
         check_cycles!(0xcd, 4, "CMP", "Absolute");
         check_cycles!(0xce, 6, "DEC", "Absolute");
@@ -1826,6 +1840,7 @@ mod instruction_set {
         check_bytes!(0xc8, 1, "INY", "Implied");
         check_bytes!(0xc9, 2, "CMP", "Immediate");
         check_bytes!(0xca, 1, "DEX", "Implied");
+        check_bytes!(0xcb, 2, "AXS", "Immediate");
         check_bytes!(0xcc, 3, "CPY", "Absolute");
         check_bytes!(0xcd, 3, "CMP", "Absolute");
         check_bytes!(0xce, 3, "DEC", "Absolute");
