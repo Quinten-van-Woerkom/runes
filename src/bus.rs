@@ -39,8 +39,6 @@ use std::cell::Cell;
  */
 pub struct Bus {
     ram: [Cell<u8>; 0x800],
-    ppu: PpuRegisters,
-    apu: ApuRegisters,
     cartridge: Box<dyn Cartridge>,
 }
 
@@ -53,8 +51,6 @@ impl Bus {
         Ok(Self {
             // Safe because u8 and Cell<u8> have the same memory layout.
             ram: unsafe { std::mem::transmute::<[u8; 0x800], [Cell<u8>; 0x800]>([0u8; 0x800])},
-            ppu: PpuRegisters{},
-            apu: ApuRegisters{},
             cartridge: load_cartridge(path)?,
         })
     }
@@ -91,12 +87,6 @@ impl cpu::Pinout for Bus {
         None
     }
 }
-
-/**
- * To be implemented.
- */
-struct PpuRegisters {}
-struct ApuRegisters {}
 
 #[cfg(test)]
 mod access {
