@@ -25,7 +25,6 @@
 
 use crate::cartridge::{ Cartridge, load_cartridge };
 use crate::cpu;
-use crate::clock::Clock;
 use std::cell::Cell;
 
 /**
@@ -37,7 +36,7 @@ use std::cell::Cell;
  * Keeping track of processor clocks is done by updating each clock whenever
  * the corresponding device accesses memory. This is chosen over keeping
  * references because of the ensuing lifetime issues and to prevent cacheline
- * contention, since the clocks are updated frequently.
+ * contention (if we ever go parallel), since the clocks are updated frequently.
  * 
  * In a small deviation from reality, shared memory must also be accessed
  * through the bus, even when, in reality, it belongs to the accessing device,
@@ -46,9 +45,9 @@ use std::cell::Cell;
 pub struct Memory {
     ram: [Cell<u8>; 0x800],
     cartridge: Box<dyn Cartridge>,
-    cpu: Clock,
-    ppu: Clock,
-    apu: Clock,
+    cpu_cycle: Cell<usize>,
+    ppu_cycle: Cell<usize>,
+    apu_cycle: Cell<usize>,
 }
 
 impl Memory {
@@ -61,9 +60,9 @@ impl Memory {
             // Safe because u8 and Cell<u8> have the same memory layout.
             ram: unsafe { std::mem::transmute::<[u8; 0x800], [Cell<u8>; 0x800]>([0u8; 0x800])},
             cartridge: load_cartridge(path)?,
-            cpu: Clock::from(0),
-            ppu: Clock::from(0),
-            apu: Clock::from(0),
+            cpu_cycle: Cell::from(0),
+            ppu_cycle: Cell::from(0),
+            apu_cycle: Cell::from(0),
         })
     }
 }
@@ -74,21 +73,21 @@ impl Memory {
  * For each CPU memory access, the memory's "copy" of the CPU clock is updated.
  */
 impl cpu::Pinout for Memory {
-    fn read(&self, address: u16, clock: &Clock) -> Option<u8> {
-        self.cpu.set(clock);
+    fn read(&self, address: u16, cycle: usize) -> Option<u8> {
+        self.cpu_cycle.set(cycle);
         match address {
             0x0000..=0x1fff => Some(self.ram[(address % 0x800) as usize].get()),
-            0x4020..=0xffff => self.cartridge.cpu_read(address, clock),
+            0x4020..=0xffff => self.cartridge.cpu_read(address, cycle),
             // TODO: For now, returns 0
             _ => Some(0)
         }
     }
 
-    fn write(&self, address: u16, data: u8, clock: &Clock) -> Option<()> {
-        self.cpu.set(clock);
+    fn write(&self, address: u16, data: u8, cycle: usize) -> Option<()> {
+        self.cpu_cycle.set(cycle);
         match address {
             0x0000..=0x1fff => Some(self.ram[(address % 0x800) as usize].set(data)),
-            0x4020..=0xffff => self.cartridge.cpu_write(address, data, clock),
+            0x4020..=0xffff => self.cartridge.cpu_write(address, data, cycle),
             // TODO: For now, no-op
             _ => Some(())
         }
@@ -98,8 +97,8 @@ impl cpu::Pinout for Memory {
      * Not yet emulated. For now, updates the clock and acts as if no interrupt
      * was raised.
      */
-    fn nmi(&self, clock: &Clock) -> Option<bool> {
-        self.cpu.set(clock);
+    fn nmi(&self, cycle: usize) -> Option<bool> {
+        self.cpu_cycle.set(cycle);
         Some(false)
     }
 
@@ -107,8 +106,8 @@ impl cpu::Pinout for Memory {
      * Not yet emulated. For now, updates the clock and acts as if no interrupt
      * was raised.
      */
-    fn irq(&self, clock: &Clock) -> Option<bool> {
-        self.cpu.set(clock);
+    fn irq(&self, cycle: usize) -> Option<bool> {
+        self.cpu_cycle.set(cycle);
         Some(false)
     }
 
@@ -116,8 +115,8 @@ impl cpu::Pinout for Memory {
      * Not yet emulated. For now, updates the clock and acts as if no interrupt
      * was raised.
      */
-    fn reset(&self, clock: &Clock) -> Option<bool> {
-        self.cpu.set(clock);
+    fn reset(&self, cycle: usize) -> Option<bool> {
+        self.cpu_cycle.set(cycle);
         Some(false)
     }
 }
@@ -170,8 +169,8 @@ mod access {
 
         {
             use crate::cpu::Pinout;
-            assert_eq!(bus.read(0x0002, &Clock::from(cpu.cycle())), Some(0x00), "Nestest failed: byte at $02 not $00, documented opcodes wrong");
-            assert_eq!(bus.read(0x0003, &Clock::from(cpu.cycle())), Some(0x00), "Nestest failed: byte at $03 not $00, illegal opcodes wrong");
+            assert_eq!(bus.read(0x0002, cpu.cycle()), Some(0x00), "Nestest failed: byte at $02 not $00, documented opcodes wrong");
+            assert_eq!(bus.read(0x0003, cpu.cycle()), Some(0x00), "Nestest failed: byte at $03 not $00, illegal opcodes wrong");
         }
     }
 }
