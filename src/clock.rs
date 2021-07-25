@@ -28,8 +28,6 @@ use std::cell::Cell;
 /**
  * Each device that accesses shared memory must explicitly keep track of its
  * current cycle, to allow cycle-accurate memory access synchronization.
- * For now, cycles are tracked in units of a single PPU cycle, as it is the
- * smallest time unit encountered.
  * 
  * For now emulation is kept single-threaded, so only interior mutability is
  * required, and no explicit synchronization primitives.
@@ -59,6 +57,13 @@ impl Clock {
     pub fn advance(&self, cycles: u64) {
         let advanced = self.current.get() + cycles;
         self.current.set(advanced);
+    }
+
+    /**
+     * Sets a clock's cycle count to that of the passed clock.
+     */
+    pub fn set(&self, other: &Clock) {
+        self.current.set(other.current.get());
     }
 }
 
