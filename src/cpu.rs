@@ -148,12 +148,12 @@ impl Ricoh2A03 {
         macro_rules! address {
             (nop, $addressing:ident) => {{
                 self.$addressing(pinout).await;
-                self.nop().await;
+                self.nop();
             }};
 
             (jmp, $addressing:ident) => {{
                 self.$addressing(pinout).await;
-                self.jmp().await;
+                self.jmp();
             }};
 
             ($instruction:ident, $addressing:ident) => {{
@@ -172,7 +172,7 @@ impl Ricoh2A03 {
             ($instruction:ident, $addressing:ident) => {{
                 self.$addressing(pinout).await;
                 self.operand = self.read(pinout).await;
-                self.$instruction().await;
+                self.$instruction();
             }};
         }
 
@@ -184,14 +184,14 @@ impl Ricoh2A03 {
         macro_rules! modify {
             ($instruction:ident, accumulator) => {{
                 self.operand = self.a;
-                self.$instruction().await;
+                self.$instruction();
                 self.a = self.operand;
             }};
 
             ($instruction:ident, $addressing:ident) => {{
                 self.$addressing(pinout).await;
                 self.operand = self.read(pinout).await;
-                self.$instruction().await;
+                self.$instruction();
                 self.write(pinout, self.operand).await;
             }};
         }
@@ -207,8 +207,8 @@ impl Ricoh2A03 {
             ($modify:ident, $read:ident, $addressing:ident) => {{
                 self.$addressing(pinout).await;
                 self.operand = self.read(pinout).await;
-                self.$modify().await;
-                self.$read().await;
+                self.$modify();
+                self.$read();
                 self.write(pinout, self.operand).await;
             }}
         }
@@ -218,7 +218,7 @@ impl Ricoh2A03 {
          */
         macro_rules! implied {
             ($instruction:ident) => {{
-                self.$instruction().await;
+                self.$instruction();
             }};
         }
 
@@ -738,7 +738,7 @@ impl Ricoh2A03 {
      * Logical AND of the accumulator with a byte of memory. The result is
      * stored in the accumulator.
      */
-    async fn and(&mut self) {
+    fn and(&mut self) {
         self.a &= self.operand;
         self.status.zero = self.a == 0;
         self.status.negative = self.a.bit(7);
@@ -747,7 +747,7 @@ impl Ricoh2A03 {
     /**
      * Add with carry.
      */
-    async fn adc(&mut self) {
+    fn adc(&mut self) {
         let result = self.a as u16 + self.operand as u16 + self.status.carry as u16;
         self.status.carry = result > 0xff;
         self.status.zero = result.low_byte() == 0;
@@ -759,7 +759,7 @@ impl Ricoh2A03 {
     /**
      * Arithmetic shift left.
      */
-    async fn asl(&mut self) {
+    fn asl(&mut self) {
         self.status.carry = self.operand.bit(7);
         self.operand <<= 1;
         self.status.zero = self.operand == 0;
@@ -770,7 +770,7 @@ impl Ricoh2A03 {
     /**
      * Bit test
      */
-    async fn bit(&mut self) {
+    fn bit(&mut self) {
         self.status.zero = self.a & self.operand == 0;
         self.status.overflow = self.operand.bit(6);
         self.status.negative = self.operand.bit(7);
@@ -779,7 +779,7 @@ impl Ricoh2A03 {
     /**
      * Compare accumulator with memory
      */
-    async fn cmp(&mut self) {
+    fn cmp(&mut self) {
         let result = self.a.wrapping_sub(self.operand);
         self.status.zero = result == 0;
         self.status.carry = self.a >= self.operand;
@@ -789,7 +789,7 @@ impl Ricoh2A03 {
     /**
      * Compare X register with memory
      */
-    async fn cpx(&mut self) {
+    fn cpx(&mut self) {
         let result = self.x.wrapping_sub(self.operand);
         self.status.zero = result == 0;
         self.status.carry = self.x >= self.operand;
@@ -799,7 +799,7 @@ impl Ricoh2A03 {
     /**
      * Compare Y register with memory
      */
-    async fn cpy(&mut self) {
+    fn cpy(&mut self) {
         let result = self.y.wrapping_sub(self.operand);
         self.status.zero = result == 0;
         self.status.carry = self.y >= self.operand;
@@ -809,7 +809,7 @@ impl Ricoh2A03 {
     /**
      * Decrement memory
      */
-    async fn dec(&mut self) {
+    fn dec(&mut self) {
         self.operand = self.operand.wrapping_sub(1);
         self.status.zero = self.operand == 0;
         self.status.negative = self.operand.bit(7);
@@ -819,7 +819,7 @@ impl Ricoh2A03 {
     /**
      * Decrement X register
      */
-    async fn dex(&mut self) {
+    fn dex(&mut self) {
         self.clock.advance(1);
         self.x = self.x.wrapping_sub(1);
         self.status.zero = self.x == 0;
@@ -829,7 +829,7 @@ impl Ricoh2A03 {
     /**
      * Decrement Y register
      */
-    async fn dey(&mut self) {
+    fn dey(&mut self) {
         self.clock.advance(1);
         self.y = self.y.wrapping_sub(1);
         self.status.zero = self.y == 0;
@@ -839,7 +839,7 @@ impl Ricoh2A03 {
     /**
      * Exclusive OR
      */
-    async fn eor(&mut self) {
+    fn eor(&mut self) {
         self.a ^= self.operand;
         self.status.zero = self.a == 0;
         self.status.negative = self.a.bit(7);
@@ -848,7 +848,7 @@ impl Ricoh2A03 {
     /**
      * Increment memory
      */
-    async fn inc(&mut self) {
+    fn inc(&mut self) {
         self.operand = self.operand.wrapping_add(1);
         self.status.zero = self.operand == 0;
         self.status.negative = self.operand.bit(7);
@@ -858,7 +858,7 @@ impl Ricoh2A03 {
     /**
      * Increment X register
      */
-    async fn inx(&mut self) {
+    fn inx(&mut self) {
         self.clock.advance(1);
         self.x = self.x.wrapping_add(1);
         self.status.zero = self.x == 0;
@@ -868,7 +868,7 @@ impl Ricoh2A03 {
     /**
      * Increment Y register
      */
-    async fn iny(&mut self) {
+    fn iny(&mut self) {
         self.clock.advance(1);
         self.y = self.y.wrapping_add(1);
         self.status.zero = self.y == 0;
@@ -878,7 +878,7 @@ impl Ricoh2A03 {
     /**
      * Logical shift right
      */
-    async fn lsr(&mut self) {
+    fn lsr(&mut self) {
         self.status.carry = self.operand.bit(0);
         self.operand >>= 1;
         self.status.zero = self.operand == 0;
@@ -889,14 +889,14 @@ impl Ricoh2A03 {
     /**
      * No operation
      */
-    async fn nop(&mut self) {
+    fn nop(&mut self) {
         self.clock.advance(1);
     }
 
     /**
      * Logical inclusive OR
      */
-    async fn ora(&mut self) {
+    fn ora(&mut self) {
         self.a |= self.operand;
         self.status.zero = self.a == 0;
         self.status.negative = self.a.bit(7);
@@ -905,7 +905,7 @@ impl Ricoh2A03 {
     /**
      * Rotate left
      */
-    async fn rol(&mut self) {
+    fn rol(&mut self) {
         let result = (self.operand << 1).change_bit(0, self.status.carry);
         self.status.carry = self.operand.bit(7);
         self.status.zero = result == 0;
@@ -917,7 +917,7 @@ impl Ricoh2A03 {
     /**
      * Rotate right
      */
-    async fn ror(&mut self) {
+    fn ror(&mut self) {
         let result = (self.operand >> 1).change_bit(7, self.status.carry);
         self.status.carry = self.operand.bit(0);
         self.status.zero = result == 0;
@@ -931,7 +931,7 @@ impl Ricoh2A03 {
      * Turns out that SBC(x) = ADC(!x), because of the nature of bitwise
      * addition and subtraction for two's complement numbers.
      */
-    async fn sbc(&mut self) {
+    fn sbc(&mut self) {
         let result = self.a as u16 + !self.operand as u16 + self.status.carry as u16;
         self.status.carry = result > 0xff;
         self.status.zero = result.low_byte() == 0;
@@ -943,7 +943,7 @@ impl Ricoh2A03 {
     /**
      * LAX, similar to LDA followed by TAX
      */
-    async fn lax(&mut self) {
+    fn lax(&mut self) {
         self.a = self.operand;
         self.x = self.operand;
         self.status.zero = self.operand == 0;
@@ -953,7 +953,7 @@ impl Ricoh2A03 {
     /**
      * Loads memory into the accumulator register
      */
-    async fn lda(&mut self) {
+    fn lda(&mut self) {
         self.a = self.operand;
         self.status.zero = self.a == 0;
         self.status.negative = self.a.bit(7);
@@ -962,7 +962,7 @@ impl Ricoh2A03 {
     /**
      * Loads memory into the X register
      */
-    async fn ldx(&mut self) {
+    fn ldx(&mut self) {
         self.x = self.operand;
         self.status.zero = self.x == 0;
         self.status.negative = self.x.bit(7);
@@ -971,7 +971,7 @@ impl Ricoh2A03 {
     /**
      * Loads memory into the Y register
      */
-    async fn ldy(&mut self) {
+    fn ldy(&mut self) {
         self.y = self.operand;
         self.status.zero = self.y == 0;
         self.status.negative = self.y.bit(7);
@@ -995,7 +995,7 @@ impl Ricoh2A03 {
     /**
      * JMP - Jump
      */
-    async fn jmp(&mut self) {
+    fn jmp(&mut self) {
         self.program_counter = self.address;
     }
     
@@ -1072,7 +1072,7 @@ impl Ricoh2A03 {
     /**
      * Transfer accumulator to X register
      */
-    async fn tax(&mut self) {
+    fn tax(&mut self) {
         self.clock.advance(1); // Dummy read
         self.x = self.a;
         self.status.zero = self.x == 0;
@@ -1082,7 +1082,7 @@ impl Ricoh2A03 {
     /**
      * Transfer accumulator to Y register
      */
-    async fn tay(&mut self) {
+    fn tay(&mut self) {
         self.clock.advance(1); // Dummy read
         self.y = self.a;
         self.status.zero = self.y == 0;
@@ -1092,7 +1092,7 @@ impl Ricoh2A03 {
     /**
      * Transfer stack pointer to X register
      */
-    async fn tsx(&mut self) {
+    fn tsx(&mut self) {
         self.clock.advance(1); // Dummy read
         self.x = self.stack_pointer;
         self.status.zero = self.x == 0;
@@ -1102,7 +1102,7 @@ impl Ricoh2A03 {
     /**
      * Transfer X register to accumulator
      */
-    async fn txa(&mut self) {
+    fn txa(&mut self) {
         self.clock.advance(1); // Dummy read
         self.a = self.x;
         self.status.zero = self.a == 0;
@@ -1112,7 +1112,7 @@ impl Ricoh2A03 {
     /**
      * Transfer X register to stack pointer
      */
-    async fn txs(&mut self) {
+    fn txs(&mut self) {
         self.clock.advance(1); // Dummy read
         self.stack_pointer = self.x;
     }
@@ -1120,7 +1120,7 @@ impl Ricoh2A03 {
     /**
      * Transfer Y register to accumulator
      */
-    async fn tya(&mut self) {
+    fn tya(&mut self) {
         self.clock.advance(1); // Dummy read
         self.a = self.y;
         self.status.zero = self.a == 0;
@@ -1159,8 +1159,8 @@ impl Ricoh2A03 {
      * Immediate AND, followed by N being copied to C.
      * TODO: Implement tests to ensure correctness.
      */
-    async fn anc(&mut self) {
-        self.and().await;
+    fn anc(&mut self) {
+        self.and();
         self.status.carry = self.status.negative;
     }
 
@@ -1170,7 +1170,7 @@ impl Ricoh2A03 {
      * timing problems, however.
      * TODO: Implement tests to ensure correctness.
      */
-    async fn alr(&mut self) {
+    fn alr(&mut self) {
         self.a &= self.operand;
         self.status.carry = self.a.bit(0);
         self.a >>= 1;
@@ -1185,7 +1185,7 @@ impl Ricoh2A03 {
      * - V is bit 6 xor bit 5 of the accumulator
      * TODO: Implement tests to ensure correctness.
      */
-    async fn arr(&mut self) {
+    fn arr(&mut self) {
         self.a &= self.operand;
         self.a = (self.a >> 1).change_bit(7, self.status.carry);
         self.status.zero = self.a == 0;
@@ -1199,7 +1199,7 @@ impl Ricoh2A03 {
      * flags.
      * TODO: Implement tests to ensure correctness.
      */
-    async fn axs(&mut self) {
+    fn axs(&mut self) {
         let (result, carry) = (self.a & self.x).overflowing_sub(self.operand);
         self.x = result;
         self.status.negative = self.x.bit(7);
@@ -1211,7 +1211,7 @@ impl Ricoh2A03 {
      * TXA followed by immediate AND, but with one less cycle.
      * TODO: Implement tests to ensure correctness.
      */
-    async fn xaa(&mut self) {
+    fn xaa(&mut self) {
         self.a = self.x;
         self.a &= self.operand;
         self.status.zero = self.a == 0;
