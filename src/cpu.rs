@@ -40,11 +40,11 @@ pub struct Ricoh2A03<'nes, Memory: Pinout> {
     y: u8,
     operand: u8, // Data bus register, combination of SB/DB
     address: u16, // Address bus register, combination of ADL/ADH/ABL/ABH
-    bus: Option<&'nes Memory>, // Reference to the memory bus
+    pinout: Option<&'nes Memory>, // Reference to the memory bus
 }
 
 impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
-    pub fn reset(bus: &'nes Memory) -> Self {
+    pub fn reset(pinout: &'nes Memory) -> Self {
         Self {
             clock: Clock::from(7), // Start-up takes 7 cycles
             program_counter: 0xc000,
@@ -55,12 +55,12 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             y: 0x00,
             operand: 0x00,
             address: 0x0000,
-            bus: Some(bus),
+            pinout: Some(pinout),
         }
     }
 
     pub fn new(cycle: u64, status: u8, program_counter: u16, stack_pointer: u8,
-                a: u8, x: u8, y: u8, bus: Option<&'nes Memory>) -> Self {
+                a: u8, x: u8, y: u8, pinout: Option<&'nes Memory>) -> Self {
         Self {
             clock: Clock::from(cycle),
             status: status.into(),
@@ -71,7 +71,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             y,
             operand: 0x00,
             address: 0x0000,
-            bus: bus,
+            pinout: pinout,
         }
     }
 
@@ -483,7 +483,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      */
     async fn read(&self) -> u8 {
         loop {
-            match self.bus.unwrap().read(self.address, &self.clock) {
+            match self.pinout.unwrap().read(self.address, &self.clock) {
                 None => yields().await,
                 Some(data) => {
                     self.clock.advance(1);
@@ -498,7 +498,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      */
     async fn write(&self, data: u8) {
         loop {
-            match self.bus.unwrap().write(self.address, data, &self.clock) {
+            match self.pinout.unwrap().write(self.address, data, &self.clock) {
                 None => yields().await,
                 Some(()) => return self.clock.advance(1),
             }
@@ -1258,7 +1258,7 @@ impl<'nes, Memory: Pinout> Clone for Ricoh2A03<'nes, Memory> {
             y: self.y,
             operand: self.operand,
             address: self.address,
-            bus: self.bus,
+            pinout: self.pinout,
         }
     }
 }
@@ -1447,14 +1447,14 @@ mod instruction_set {
     use std::io::*;
 
     /**
-     * For testing purposes, we here use a bus that directly writes to
-     * an array, without memory mapping.
+     * For testing purposes, we here represent memory as an array, without
+     * memory mapping.
      */
-    struct ArrayBus {
+    struct DummyMemory {
         data: [Cell<u8>; 0x10000],
     }
 
-    impl ArrayBus {
+    impl DummyMemory {
         fn new() -> Self {
             Self { data: unsafe { std::mem::transmute([0u8; 0x10000]) } }
         }
@@ -1473,7 +1473,7 @@ mod instruction_set {
         }
     }
 
-    impl Pinout for ArrayBus {
+    impl Pinout for DummyMemory {
         fn read(&self, address: u16, _time: &Clock) -> Option<u8> {
             Some(self.data[address as usize].get())
         }
@@ -1490,7 +1490,7 @@ mod instruction_set {
 
     #[test]
     fn cycles() {
-        let bus = ArrayBus::new();
+        let bus = DummyMemory::new();
         let mut cpu = Ricoh2A03::reset(&bus);
 
         macro_rules! check_cycles {
@@ -1697,7 +1697,7 @@ mod instruction_set {
 
     #[test]
     fn bytes() {
-        let bus = ArrayBus::new();
+        let bus = DummyMemory::new();
         let mut cpu = Ricoh2A03::reset(&bus);
 
         macro_rules! check_bytes {
@@ -1890,7 +1890,7 @@ mod instruction_set {
     #[test]
     fn jump() {
         let bus = {
-            let mut bus = ArrayBus::new();
+            let mut bus = DummyMemory::new();
             bus.data[0xc000] = Cell::from(0xff);
             bus
         };
@@ -1906,7 +1906,7 @@ mod instruction_set {
         use std::fs::File;
         use std::io::BufReader;
 
-        let bus = ArrayBus::load_nestest(std::path::Path::new("nestest.nes")).expect("Unable to load nestest rom");
+        let bus = DummyMemory::load_nestest(std::path::Path::new("nestest.nes")).expect("Unable to load nestest rom");
         let mut cpu = Ricoh2A03::reset(&bus);
         let nintendulator = BufReader::new(File::open("nestest.log").expect("Unable to load nestest log"));
 
