@@ -349,7 +349,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0x7f => combine!(ror, adc, absolute_x_write), // Unsure if this should be cross or not
             0x80 => address!(nop, immediate),
             0x81 => address!(sta, indirect_x),
-            0x82 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
+            0x82 => address!(nop, immediate),
             0x83 => address!(sax, indirect_x),
             0x84 => address!(sty, zeropage),
             0x85 => address!(sta, zeropage),
@@ -413,7 +413,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0xbf => read!(lax, absolute_y_read),
             0xc0 => read!(cpy, immediate),
             0xc1 => read!(cmp, indirect_x),
-            0xc2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
+            0xc2 => address!(nop, immediate),
             0xc3 => combine!(dec, cmp, indirect_x),
             0xc4 => read!(cpy, zeropage),
             0xc5 => read!(cmp, zeropage),
@@ -445,7 +445,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0xdf => combine!(dec, cmp, absolute_x_write), // Unsure if this should be cross or not
             0xe0 => read!(cpx, immediate),
             0xe1 => read!(sbc, indirect_x),
-            0xe2 => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
+            0xe2 => address!(nop, immediate),
             0xe3 => combine!(inc, sbc, indirect_x),
             0xe4 => read!(cpx, zeropage),
             0xe5 => read!(sbc, zeropage),
@@ -1582,7 +1582,9 @@ mod instruction_set {
         check_cycles!(0x79, 4, "ADC", "Absolute,Y");
         check_cycles!(0x7d, 4, "ADC", "Absolute,X");
         check_cycles!(0x7e, 7, "ROR", "Absolute,X");
+        check_cycles!(0x80, 2, "NOP", "Immediate");
         check_cycles!(0x81, 6, "STA", "(Indirect,X)");
+        check_cycles!(0x82, 2, "NOP", "Immediate");
         check_cycles!(0x84, 3, "STY", "Zeropage");
         check_cycles!(0x85, 3, "STA", "Zeropage");
         check_cycles!(0x86, 3, "STX", "Zeropage");
@@ -1625,6 +1627,7 @@ mod instruction_set {
         check_cycles!(0xbe, 4, "LDX", "Absolute,Y");
         check_cycles!(0xc0, 2, "CPY", "Immediate");
         check_cycles!(0xc1, 6, "CMP", "(Indirect,X)");
+        check_cycles!(0xc2, 2, "NOP", "Immediate");
         check_cycles!(0xc4, 3, "CPY", "Zeropage");
         check_cycles!(0xc5, 3, "CMP", "Zeropage");
         check_cycles!(0xc6, 5, "DEC", "Zeropage");
@@ -1644,6 +1647,7 @@ mod instruction_set {
         check_cycles!(0xde, 7, "DEC", "Absolute,X");
         check_cycles!(0xe0, 2, "CPX", "Immediate");
         check_cycles!(0xe1, 6, "SBC", "(Indirect,X)");
+        check_cycles!(0xe2, 2, "NOP", "Immediate");
         check_cycles!(0xe4, 3, "CPX", "Zeropage");
         check_cycles!(0xe5, 3, "SBC", "Zeropage");
         check_cycles!(0xe6, 5, "INC", "Zeropage");
@@ -1768,7 +1772,9 @@ mod instruction_set {
         check_bytes!(0x79, 3, "ADC", "Absolute,Y");
         check_bytes!(0x7d, 3, "ADC", "Absolute,X");
         check_bytes!(0x7e, 3, "ROR", "Absolute,X");
+        check_bytes!(0x80, 2, "NOP", "Immediate");
         check_bytes!(0x81, 2, "STA", "(Indirect,X)");
+        check_bytes!(0x82, 2, "NOP", "Immediate");
         check_bytes!(0x84, 2, "STY", "Zeropage");
         check_bytes!(0x85, 2, "STA", "Zeropage");
         check_bytes!(0x86, 2, "STX", "Zeropage");
@@ -1811,6 +1817,7 @@ mod instruction_set {
         check_bytes!(0xbe, 3, "LDX", "Absolute,Y");
         check_bytes!(0xc0, 2, "CPY", "Immediate");
         check_bytes!(0xc1, 2, "CMP", "(Indirect,X)");
+        check_bytes!(0xc2, 2, "NOP", "Immediate");
         check_bytes!(0xc4, 2, "CPY", "Zeropage");
         check_bytes!(0xc5, 2, "CMP", "Zeropage");
         check_bytes!(0xc6, 2, "DEC", "Zeropage");
@@ -1830,6 +1837,7 @@ mod instruction_set {
         check_bytes!(0xde, 3, "DEC", "Absolute,X");
         check_bytes!(0xe0, 2, "CPX", "Immediate");
         check_bytes!(0xe1, 2, "SBC", "(Indirect,X)");
+        check_bytes!(0xe2, 2, "NOP", "Immediate");
         check_bytes!(0xe4, 2, "CPX", "Zeropage");
         check_bytes!(0xe5, 2, "SBC", "Zeropage");
         check_bytes!(0xe6, 2, "INC", "Zeropage");
