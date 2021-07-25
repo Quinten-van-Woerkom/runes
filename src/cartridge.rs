@@ -24,6 +24,7 @@
  */
 
 use crate::bitwise::Bitwise;
+use crate::clock::Clock;
 use std::cell::Cell;
 use std::io::Read;
 use std::fs::File;
@@ -36,12 +37,14 @@ use std::fs::File;
  * 
  * Additionally, separate processing power emulation would also require
  * separate synchronization for the cartridge, this is to be implemented later.
+ * 
+ * Conceptually, corresponds to the cartridge pinout.
  */
 pub trait Cartridge {
-    fn cpu_read(&self, address: u16) -> u8;
-    fn cpu_write(&self, address: u16, value: u8);
-    fn ppu_read(&self, address: u16) -> u8;
-    fn ppu_write(&self, address: u16, value: u8);
+    fn cpu_read(&self, address: u16, clock: &Clock) -> Option<u8>;
+    fn cpu_write(&self, address: u16, value: u8, clock: &Clock) -> Option<()>;
+    fn ppu_read(&self, address: u16, clock: &Clock) -> Option<u8>;
+    fn ppu_write(&self, address: u16, value: u8, clock: &Clock) -> Option<()>;
 }
 
 /**
@@ -309,8 +312,8 @@ impl Mapper0 {
 }
 
 impl Cartridge for Mapper0 {
-    fn cpu_read(&self, address: u16) -> u8 {
-        match address {
+    fn cpu_read(&self, address: u16, _clock: &Clock) -> Option<u8> {
+        Some(match address {
             0x6000..=0x7fff => {
                 let address = (address as usize - 0x6000) % self.prg_ram.len();
                 self.prg_ram[address].get()
@@ -320,22 +323,22 @@ impl Cartridge for Mapper0 {
                 self.prg_rom[address]
             },
             _ => unreachable!()
-        }
+        })
     }
 
-    fn cpu_write(&self, address: u16, value: u8) {
-        match address {
+    fn cpu_write(&self, address: u16, value: u8, _clock: &Clock) -> Option<()> {
+        Some(match address {
             0x6000..=0x7fff => {
                 let address = (address as usize - 0x6000) % self.prg_ram.len();
                 self.prg_ram[address].set(value);
             },
             0x8000..=0xffff => {},
             _ => unreachable!()
-        }
+        })
     }
 
-    fn ppu_read(&self, _address: u16) -> u8 { 0 }
-    fn ppu_write(&self, _address: u16, _value: u8) {}
+    fn ppu_read(&self, _address: u16, _clock: &Clock) -> Option<u8> { Some(0) }
+    fn ppu_write(&self, _address: u16, _value: u8, _clock: &Clock) -> Option<()> { Some(()) }
 }
 
 #[cfg(test)]

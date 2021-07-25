@@ -61,19 +61,19 @@ impl Bus {
 }
 
 impl cpu::Pinout for Bus {
-    fn read(&self, address: u16, time: &Clock) -> Option<u8> {
+    fn read(&self, address: u16, clock: &Clock) -> Option<u8> {
         match address {
             0x0000..=0x1fff => Some(self.ram[(address % 0x800) as usize].get()),
-            0x4020..=0xffff => Some(self.cartridge.cpu_read(address)),
+            0x4020..=0xffff => self.cartridge.cpu_read(address, clock),
             // TODO: For now, returns 0
             _ => Some(0)
         }
     }
 
-    fn write(&self, address: u16, data: u8, time: &Clock) -> Option<()> {
+    fn write(&self, address: u16, data: u8, clock: &Clock) -> Option<()> {
         match address {
             0x0000..=0x1fff => Some(self.ram[(address % 0x800) as usize].set(data)),
-            0x4020..=0xffff => Some(self.cartridge.cpu_write(address, data)),
+            0x4020..=0xffff => self.cartridge.cpu_write(address, data, clock),
             // TODO: For now, no-op
             _ => Some(())
         }
