@@ -75,6 +75,30 @@ impl<'nes, Memory: Bus> Ricoh2A03<'nes, Memory> {
         }
     }
 
+    /**
+     * For testing purposes, we also allow a CPU to be constructed from a
+     * Nintendulator log entry.
+     */
+    #[cfg(test)]
+    pub fn from_nintendulator(log: &str) -> Self {
+        let mut state = log.split_whitespace();
+        let program_counter: u16 = u16::from_str_radix(state.next().unwrap(), 16).unwrap();
+        let cycle: u64 = u64::from_str_radix(state.next_back().unwrap().strip_prefix("CYC:").unwrap(), 10).unwrap();
+
+        let mut skip = state.next().unwrap().strip_prefix("A:");
+        while skip.is_none() {
+            skip = state.next().unwrap().strip_prefix("A:");
+        }
+
+        let a = u8::from_str_radix(skip.unwrap(), 16).unwrap();
+        let x = u8::from_str_radix(state.next().unwrap().strip_prefix("X:").unwrap(), 16).unwrap();
+        let y = u8::from_str_radix(state.next().unwrap().strip_prefix("Y:").unwrap(), 16).unwrap();
+        let status = u8::from_str_radix(state.next().unwrap().strip_prefix("P:").unwrap(), 16).unwrap();
+        let stack_pointer = u8::from_str_radix(state.next().unwrap().strip_prefix("SP:").unwrap(), 16).unwrap();
+
+        Self::new(cycle, status, program_counter, stack_pointer, a, x, y, None)
+    }
+
     pub async fn run(&mut self) {
         loop {
             self.step().await;
@@ -1289,42 +1313,6 @@ mod test {
         }
     }
 
-    /**
-     * For testing purposes, we also allow a CPU to be constructed from a
-     * Nintendulator log entry.
-     */
-    #[cfg(test)]
-    fn from_nintendulator<'nes, Memory: Bus>(log: &str) -> Ricoh2A03<'nes, Memory> {
-        let mut state = log.split_whitespace();
-        let program_counter: u16 = u16::from_str_radix(state.next().unwrap(), 16).unwrap();
-        let cycle: u64 = u64::from_str_radix(state.next_back().unwrap().strip_prefix("CYC:").unwrap(), 10).unwrap();
-
-        let mut skip = state.next().unwrap().strip_prefix("A:");
-        while skip.is_none() {
-            skip = state.next().unwrap().strip_prefix("A:");
-        }
-
-        let a = u8::from_str_radix(skip.unwrap(), 16).unwrap();
-        let x = u8::from_str_radix(state.next().unwrap().strip_prefix("X:").unwrap(), 16).unwrap();
-        let y = u8::from_str_radix(state.next().unwrap().strip_prefix("Y:").unwrap(), 16).unwrap();
-        let status = u8::from_str_radix(state.next().unwrap().strip_prefix("P:").unwrap(), 16).unwrap();
-        let stack_pointer = u8::from_str_radix(state.next().unwrap().strip_prefix("SP:").unwrap(), 16).unwrap();
-
-        Ricoh2A03 {
-            clock: Clock::from(cycle),
-            program_counter,
-            status: status.into(),
-            stack_pointer,
-            a,
-            x,
-            y,
-            operand: 0x00,
-            address: 0x0000,
-            bus: None,
-        }
-    }
-
-
     mod instructions {
         use super::*;
         use std::cell::Cell;
@@ -1781,7 +1769,7 @@ mod test {
 
             for log_line in nintendulator.lines() {
                 let log_line = log_line.expect("Error reading Nintendulator log line");
-                let nintendulator = from_nintendulator(&log_line);
+                let nintendulator = Ricoh2A03::from_nintendulator(&log_line);
 
                 // Terribly inefficient, but fine, it's the easiest way to show
                 // the execution history in order.
