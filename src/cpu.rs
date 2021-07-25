@@ -390,7 +390,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0xa8 => implied!(tay),
             0xa9 => read!(lda, immediate),
             0xaa => implied!(tax),
-            0xab => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
+            0xab => read!(xaa, immediate),
             0xac => read!(ldy, absolute),
             0xad => read!(lda, absolute),
             0xae => read!(ldx, absolute),
@@ -1192,6 +1192,17 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
         self.status.zero = self.x == 0;
         self.status.carry = carry;
     }
+
+    /**
+     * TXA followed by immediate AND, but with one less cycle.
+     * TODO: Implement tests to ensure correctness.
+     */
+    async fn xaa(&mut self) {
+        self.a = self.x;
+        self.a &= self.operand;
+        self.status.zero = self.a == 0;
+        self.status.negative = self.a.bit(7);
+    }
 }
 
 impl<'nes, Memory: Pinout> std::fmt::Debug for Ricoh2A03<'nes, Memory> {
@@ -1627,6 +1638,7 @@ mod instruction_set {
         check_cycles!(0xa9, 2, "LDA", "Immediate");
         check_cycles!(0xaa, 2, "TAX", "Implied");
         check_cycles!(0xac, 4, "LDY", "Absolute");
+        check_cycles!(0xab, 2, "XAA", "Immediate");
         check_cycles!(0xad, 4, "LDA", "Absolute");
         check_cycles!(0xae, 4, "LDX", "Absolute");
         check_cycles!(0xb0, 2, "BCS", "Relative", carry, true);
@@ -1817,6 +1829,7 @@ mod instruction_set {
         check_bytes!(0xa8, 1, "TAY", "Implied");
         check_bytes!(0xa9, 2, "LDA", "Immediate");
         check_bytes!(0xaa, 1, "TAX", "Implied");
+        check_bytes!(0xab, 2, "XAA", "Immediate");
         check_bytes!(0xac, 3, "LDY", "Absolute");
         check_bytes!(0xad, 3, "LDA", "Absolute");
         check_bytes!(0xae, 3, "LDX", "Absolute");
