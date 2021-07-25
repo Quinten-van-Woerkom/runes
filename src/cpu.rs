@@ -1276,12 +1276,12 @@ impl<'nes, Memory: Pinout> Clone for Ricoh2A03<'nes, Memory> {
  * to a significant amount when used for every read or write.
  */
 pub trait Pinout {
-    fn read(&self, address: u16, time: &Clock) -> Option<u8>;
-    fn write(&self, address: u16, data: u8, time: &Clock) -> Option<()>;
+    fn read(&self, address: u16, clock: &Clock) -> Option<u8>;
+    fn write(&self, address: u16, data: u8, clock: &Clock) -> Option<()>;
 
-    fn nmi(&self, time: &Clock) -> Option<bool>;
-    fn irq(&self, time: &Clock) -> Option<bool>;
-    fn reset(&self, time: &Clock) -> Option<bool>;
+    fn nmi(&self, clock: &Clock) -> Option<bool>;
+    fn irq(&self, clock: &Clock) -> Option<bool>;
+    fn reset(&self, clock: &Clock) -> Option<bool>;
 }
 
 
