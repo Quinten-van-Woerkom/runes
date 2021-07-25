@@ -31,7 +31,8 @@ use std::cell::Cell;
 /**
  * All shared memory on an NES system is accessed through the bus, naturally.
  * This means that it also makes for a good synchronization barrier when
- * accessing this memory.
+ * accessing this memory. Indeed, the memory keeps track of each processor's
+ * clock to synchronize timing.
  * 
  * In a small deviation from reality, shared memory must also be accessed
  * through the bus, even when, in reality, it belongs to the accessing device,
@@ -40,6 +41,9 @@ use std::cell::Cell;
 pub struct Memory {
     ram: [Cell<u8>; 0x800],
     cartridge: Box<dyn Cartridge>,
+    cpu: Clock,
+    ppu: Clock,
+    apu: Clock,
 }
 
 impl Memory {
@@ -52,12 +56,16 @@ impl Memory {
             // Safe because u8 and Cell<u8> have the same memory layout.
             ram: unsafe { std::mem::transmute::<[u8; 0x800], [Cell<u8>; 0x800]>([0u8; 0x800])},
             cartridge: load_cartridge(path)?,
+            cpu: Clock::from(0),
+            ppu: Clock::from(0),
+            apu: Clock::from(0),
         })
     }
 }
 
 impl cpu::Pinout for Memory {
     fn read(&self, address: u16, clock: &Clock) -> Option<u8> {
+        self.cpu.set(clock);
         match address {
             0x0000..=0x1fff => Some(self.ram[(address % 0x800) as usize].get()),
             0x4020..=0xffff => self.cartridge.cpu_read(address, clock),
@@ -67,6 +75,7 @@ impl cpu::Pinout for Memory {
     }
 
     fn write(&self, address: u16, data: u8, clock: &Clock) -> Option<()> {
+        self.cpu.set(clock);
         match address {
             0x0000..=0x1fff => Some(self.ram[(address % 0x800) as usize].set(data)),
             0x4020..=0xffff => self.cartridge.cpu_write(address, data, clock),
@@ -75,16 +84,19 @@ impl cpu::Pinout for Memory {
         }
     }
 
-    fn nmi(&self, time: &Clock) -> Option<bool> {
-        None
+    fn nmi(&self, clock: &Clock) -> Option<bool> {
+        self.cpu.set(clock);
+        Some(false)
     }
 
-    fn irq(&self, time: &Clock) -> Option<bool> {
-        None
+    fn irq(&self, clock: &Clock) -> Option<bool> {
+        self.cpu.set(clock);
+        Some(false)
     }
 
-    fn reset(&self, time: &Clock) -> Option<bool> {
-        None
+    fn reset(&self, clock: &Clock) -> Option<bool> {
+        self.cpu.set(clock);
+        Some(false)
     }
 }
 
