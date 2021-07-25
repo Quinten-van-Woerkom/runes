@@ -294,7 +294,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0x48 => implied!(pha),
             0x49 => read!(eor, immediate),
             0x4a => modify!(lsr, accumulator),
-            0x4b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
+            0x4b => read!(alr, immediate),
             0x4c => address!(jmp, absolute),
             0x4d => read!(eor, absolute),
             0x4e => modify!(lsr, absolute),
@@ -1149,6 +1149,19 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
         self.and().await;
         self.status.carry = self.status.negative;
     }
+
+    /**
+     * Immediate AND followed by LSR A.
+     * Cannot be implemented in terms of those two instructions because of
+     * timing problems, however.
+     */
+    async fn alr(&mut self) {
+        self.a &= self.operand;
+        self.status.carry = self.a.bit(0);
+        self.a >>= 1;
+        self.status.zero = self.a == 0;
+        self.status.negative = self.a.bit(7);
+    }
 }
 
 impl<'nes, Memory: Pinout> std::fmt::Debug for Ricoh2A03<'nes, Memory> {
@@ -1523,6 +1536,7 @@ mod instruction_set {
         check_cycles!(0x48, 3, "PHA", "Implied");
         check_cycles!(0x49, 2, "EOR", "Immediate");
         check_cycles!(0x4a, 2, "LSR", "Accumulator");
+        check_cycles!(0x4b, 2, "ALR", "Immediate");
         check_cycles!(0x4c, 3, "JMP", "Absolute");
         check_cycles!(0x4d, 4, "EOR", "Absolute");
         check_cycles!(0x4e, 6, "LSR", "Absolute");
@@ -1710,6 +1724,7 @@ mod instruction_set {
         check_bytes!(0x48, 1, "PHA", "Implied");
         check_bytes!(0x49, 2, "EOR", "Immediate");
         check_bytes!(0x4a, 1, "LSR", "Accumulator");
+        check_bytes!(0x4b, 2, "ALR", "Immediate");
         check_bytes!(0x4d, 3, "EOR", "Absolute");
         check_bytes!(0x4e, 3, "LSR", "Absolute");
         check_bytes!(0x50, 2, "BVC", "Relative", overflow, false);
