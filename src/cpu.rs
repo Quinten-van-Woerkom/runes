@@ -230,7 +230,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0x08 => implied!(php),
             0x09 => read!(ora, immediate),
             0x0a => modify!(asl, accumulator),
-            0x0b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
+            0x0b => read!(anc, immediate),
             0x0c => address!(nop, absolute),
             0x0d => read!(ora, absolute),
             0x0e => modify!(asl, absolute),
@@ -262,7 +262,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0x28 => implied!(plp),
             0x29 => read!(and, immediate),
             0x2a => modify!(rol, accumulator),
-            0x2b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
+            0x2b => read!(anc, immediate),
             0x2c => read!(bit, absolute),
             0x2d => read!(and, absolute),
             0x2e => modify!(rol, absolute),
@@ -1140,6 +1140,15 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
     async fn sax(&mut self) {
         self.write(self.a & self.x).await;
     }
+
+    /**
+     * Immediate AND, followed by N being copied to C.
+     * TODO: Implement tests to ensure correctness.
+     */
+    async fn anc(&mut self) {
+        self.and().await;
+        self.status.carry = self.status.negative;
+    }
 }
 
 impl<'nes, Memory: Pinout> std::fmt::Debug for Ricoh2A03<'nes, Memory> {
@@ -1476,6 +1485,7 @@ mod instruction_set {
         check_cycles!(0x08, 3, "PHP", "Implied");
         check_cycles!(0x09, 2, "ORA", "Immediate");
         check_cycles!(0x0a, 2, "ASL", "Accumulator");
+        check_cycles!(0x0b, 2, "ANC", "Immediate");
         check_cycles!(0x0d, 4, "ORA", "Absolute");
         check_cycles!(0x0e, 6, "ASL", "Absolute");
         check_cycles!(0x10, 2, "BPL", "Relative", negative, false);
@@ -1494,6 +1504,7 @@ mod instruction_set {
         check_cycles!(0x28, 4, "PLP", "Implied");
         check_cycles!(0x29, 2, "AND", "Immediate");
         check_cycles!(0x2a, 2, "ROL", "Accumulator");
+        check_cycles!(0x2b, 2, "ANC", "Immediate");
         check_cycles!(0x2c, 4, "BIT", "Absolute");
         check_cycles!(0x2d, 4, "AND", "Absolute");
         check_cycles!(0x2e, 6, "ROL", "Absolute");
@@ -1663,6 +1674,7 @@ mod instruction_set {
         check_bytes!(0x08, 1, "PHP", "Implied");
         check_bytes!(0x09, 2, "ORA", "Immediate");
         check_bytes!(0x0a, 1, "ASL", "Accumulator");
+        check_bytes!(0x0b, 2, "ANC", "Immediate");
         check_bytes!(0x0d, 3, "ORA", "Absolute");
         check_bytes!(0x0e, 3, "ASL", "Absolute");
         check_bytes!(0x10, 2, "BPL", "Relative", negative, false);
@@ -1680,6 +1692,7 @@ mod instruction_set {
         check_bytes!(0x28, 1, "PLP", "Implied");
         check_bytes!(0x29, 2, "AND", "Immediate");
         check_bytes!(0x2a, 1, "ROL", "Accumulator");
+        check_bytes!(0x2b, 2, "ANC", "Immediate");
         check_bytes!(0x2c, 3, "BIT", "Absolute");
         check_bytes!(0x2d, 3, "AND", "Absolute");
         check_bytes!(0x2e, 3, "ROL", "Absolute");
