@@ -30,7 +30,7 @@ use crate::yields::yields;
 /**
  * Emulated internals of the Ricoh 2A03.
  */
-pub struct Ricoh2A03<'nes, Memory: Pinout> {
+pub struct Ricoh2A03 {
     clock: Clock,
     status: Status,
     program_counter: u16,
@@ -40,11 +40,10 @@ pub struct Ricoh2A03<'nes, Memory: Pinout> {
     y: u8,
     operand: u8, // Data bus register, combination of SB/DB
     address: u16, // Address bus register, combination of ADL/ADH/ABL/ABH
-    pinout: Option<&'nes Memory>, // Reference to the memory bus
 }
 
-impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
-    pub fn reset(pinout: &'nes Memory) -> Self {
+impl Ricoh2A03 {
+    pub fn reset() -> Self {
         Self {
             clock: Clock::from(7), // Start-up takes 7 cycles
             program_counter: 0xc000,
@@ -55,12 +54,11 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             y: 0x00,
             operand: 0x00,
             address: 0x0000,
-            pinout: Some(pinout),
         }
     }
 
     pub fn new(cycle: u64, status: u8, program_counter: u16, stack_pointer: u8,
-                a: u8, x: u8, y: u8, pinout: Option<&'nes Memory>) -> Self {
+                a: u8, x: u8, y: u8) -> Self {
         Self {
             clock: Clock::from(cycle),
             status: status.into(),
@@ -71,7 +69,6 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             y,
             operand: 0x00,
             address: 0x0000,
-            pinout: pinout,
         }
     }
 
@@ -96,12 +93,12 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
         let status = u8::from_str_radix(state.next().unwrap().strip_prefix("P:").unwrap(), 16).unwrap();
         let stack_pointer = u8::from_str_radix(state.next().unwrap().strip_prefix("SP:").unwrap(), 16).unwrap();
 
-        Self::new(cycle, status, program_counter, stack_pointer, a, x, y, None)
+        Self::new(cycle, status, program_counter, stack_pointer, a, x, y)
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self, pinout: &impl Pinout) {
         loop {
-            self.step().await;
+            self.step(pinout).await;
         }
     }
 
@@ -109,9 +106,9 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
         self.clock.current()
     }
 
-    pub async fn step(&mut self) {
-        let opcode = self.fetch().await;
-        self.execute(opcode).await;
+    pub async fn step(&mut self, pinout: &impl Pinout) {
+        let opcode = self.fetch(pinout).await;
+        self.execute(pinout, opcode).await;
     }
 
     /**
@@ -119,14 +116,14 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * Implemented as a combination of macros for the addressing modes and
      * operation types.
      */
-    async fn execute(&mut self, opcode: u8) {
+    async fn execute(&mut self, pinout: &impl Pinout, opcode: u8) {
         /**
          * All branch instructions follow a similar pattern, so we use a macro
          * to generate them.
          */
         macro_rules! branch {
             ($flag:ident, $value:expr) => {{
-                self.relative().await;
+                self.relative(pinout).await;
                 if self.status.$flag == $value {
                     self.clock.advance(1);
                     if self.address.high_byte() != self.program_counter.high_byte() {
@@ -150,11 +147,23 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
         /**
          * Address-based instructions operate on an address only, but don't
          * read from the corresponding memory location.
+         * NOP and JMP are special-case in that they are the only address-based
+         * instructions that do not access the bus.
          */
         macro_rules! address {
+            (nop, $addressing:ident) => {{
+                self.$addressing(pinout).await;
+                self.nop().await;
+            }};
+
+            (jmp, $addressing:ident) => {{
+                self.$addressing(pinout).await;
+                self.jmp().await;
+            }};
+
             ($instruction:ident, $addressing:ident) => {{
-                self.$addressing().await;
-                self.$instruction().await;
+                self.$addressing(pinout).await;
+                self.$instruction(pinout).await;
             }}
         }
 
@@ -166,8 +175,8 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
          */
         macro_rules! read {
             ($instruction:ident, $addressing:ident) => {{
-                self.$addressing().await;
-                self.operand = self.read().await;
+                self.$addressing(pinout).await;
+                self.operand = self.read(pinout).await;
                 self.$instruction().await;
             }};
         }
@@ -185,10 +194,10 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             }};
 
             ($instruction:ident, $addressing:ident) => {{
-                self.$addressing().await;
-                self.operand = self.read().await;
+                self.$addressing(pinout).await;
+                self.operand = self.read(pinout).await;
                 self.$instruction().await;
-                self.write(self.operand).await;
+                self.write(pinout, self.operand).await;
             }};
         }
 
@@ -201,11 +210,11 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
          */
         macro_rules! combine {
             ($modify:ident, $read:ident, $addressing:ident) => {{
-                self.$addressing().await;
-                self.operand = self.read().await;
+                self.$addressing(pinout).await;
+                self.operand = self.read(pinout).await;
                 self.$modify().await;
                 self.$read().await;
-                self.write(self.operand).await;
+                self.write(pinout, self.operand).await;
             }}
         }
 
@@ -218,8 +227,18 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             }};
         }
 
+        /**
+         * System instructions are special in that they have an implied
+         * addressing mode, but do access the bus directly.
+         */
+        macro_rules! system {
+            ($instruction:ident) => {{
+                self.$instruction(pinout).await;
+            }}
+        }
+
         match opcode {
-            0x00 => implied!(brk),
+            0x00 => system!(brk),
             0x01 => read!(ora, indirect_x),
             0x02 => unimplemented!("Encountered KIL opcode ${:x}, CPU state: {:?}", opcode, self),
             0x03 => combine!(asl, ora, indirect_x),
@@ -227,7 +246,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0x05 => read!(ora, zeropage),
             0x06 => modify!(asl, zeropage),
             0x07 => combine!(asl, ora, zeropage),
-            0x08 => implied!(php),
+            0x08 => system!(php),
             0x09 => read!(ora, immediate),
             0x0a => modify!(asl, accumulator),
             0x0b => read!(anc, immediate),
@@ -251,7 +270,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0x1d => read!(ora, absolute_x_read),
             0x1e => modify!(asl, absolute_x_write),
             0x1f => combine!(asl, ora, absolute_x_write),
-            0x20 => implied!(jsr),
+            0x20 => system!(jsr),
             0x21 => read!(and, indirect_x),
             0x22 => unimplemented!("Encountered KIL opcode ${:x}, CPU state: {:?}", opcode, self),
             0x23 => combine!(rol, and, indirect_x),
@@ -259,7 +278,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0x25 => read!(and, zeropage),
             0x26 => modify!(rol, zeropage),
             0x27 => combine!(rol, and, zeropage),
-            0x28 => implied!(plp),
+            0x28 => system!(plp),
             0x29 => read!(and, immediate),
             0x2a => modify!(rol, accumulator),
             0x2b => read!(anc, immediate),
@@ -283,7 +302,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0x3d => read!(and, absolute_x_read),
             0x3e => modify!(rol, absolute_x_write),
             0x3f => combine!(rol, and, absolute_x_write),
-            0x40 => implied!(rti),
+            0x40 => system!(rti),
             0x41 => read!(eor, indirect_x),
             0x42 => unimplemented!("Encountered KIL opcode ${:x}, CPU state: {:?}", opcode, self),
             0x43 => combine!(lsr, eor, indirect_x),
@@ -291,7 +310,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0x45 => read!(eor, zeropage),
             0x46 => modify!(lsr, zeropage),
             0x47 => combine!(lsr, eor, zeropage),
-            0x48 => implied!(pha),
+            0x48 => system!(pha),
             0x49 => read!(eor, immediate),
             0x4a => modify!(lsr, accumulator),
             0x4b => read!(alr, immediate),
@@ -315,7 +334,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0x5d => read!(eor, absolute_x_read),
             0x5e => modify!(lsr, absolute_x_write),
             0x5f => combine!(lsr, eor, absolute_x_write), // Unsure if this should be cross or not
-            0x60 => implied!(rts),
+            0x60 => system!(rts),
             0x61 => read!(adc, indirect_x),
             0x62 => unimplemented!("Encountered KIL opcode ${:x}, CPU state: {:?}", opcode, self),
             0x63 => combine!(ror, adc, indirect_x),
@@ -323,7 +342,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0x65 => read!(adc, zeropage),
             0x66 => modify!(ror, zeropage),
             0x67 => combine!(ror, adc, zeropage),
-            0x68 => implied!(pla),
+            0x68 => system!(pla),
             0x69 => read!(adc, immediate),
             0x6a => modify!(ror, accumulator),
             0x6b => read!(arr, immediate),
@@ -481,9 +500,9 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
     /**
      * Reads from the bus, taking one cycle.
      */
-    async fn read(&self) -> u8 {
+    async fn read(&self, pinout: &impl Pinout) -> u8 {
         loop {
-            match self.pinout.unwrap().read(self.address, &self.clock) {
+            match pinout.read(self.address, &self.clock) {
                 None => yields().await,
                 Some(data) => {
                     self.clock.advance(1);
@@ -496,9 +515,9 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
     /**
      * Writes to the bus, taking one cycle.
      */
-    async fn write(&self, data: u8) {
+    async fn write(&self, pinout: &impl Pinout, data: u8) {
         loop {
-            match self.pinout.unwrap().write(self.address, data, &self.clock) {
+            match pinout.write(self.address, data, &self.clock) {
                 None => yields().await,
                 Some(()) => return self.clock.advance(1),
             }
@@ -508,9 +527,9 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
     /**
      * Pushes a value onto the stack. Takes one cycle.
      */
-    async fn push(&mut self, data: u8) {
+    async fn push(&mut self, pinout: &impl Pinout, data: u8) {
         self.address = 0x0100 | self.stack_pointer as u16;
-        self.write(data).await;
+        self.write(pinout, data).await;
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
     }
 
@@ -519,27 +538,27 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * operation was also a pull. As such, the second cycle must be added
      * manually.
      */
-    async fn pull(&mut self) -> u8 {
+    async fn pull(&mut self, pinout: &impl Pinout) -> u8 {
         self.stack_pointer = self.stack_pointer.wrapping_add(1);
         self.address = 0x0100 | self.stack_pointer as u16;
-        self.read().await
+        self.read(pinout).await
     }
 
     /**
      * Reads a byte from the location of the program counter, and increments
      * the program counter afterwards. Takes one cycle, because of the read.
      */
-    async fn fetch(&mut self) -> u8 {
+    async fn fetch(&mut self, pinout: &impl Pinout) -> u8 {
         self.address = self.program_counter;
         self.program_counter = self.program_counter.wrapping_add(1);
-        self.read().await
+        self.read(pinout).await
     }
 
 
     /**
      * Immediate addressing operates straight on the operand.
      */
-    async fn immediate(&mut self) {
+    async fn immediate(&mut self, _pinout: &impl Pinout) {
         self.address = self.program_counter;
         self.program_counter = self.program_counter.wrapping_add(1);
     }
@@ -547,8 +566,8 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
     /**
      * Zeropage addressing interprets the operand as the effective address.
      */
-    async fn zeropage(&mut self) {
-        self.address = self.fetch().await as u16;
+    async fn zeropage(&mut self, pinout: &impl Pinout) {
+        self.address = self.fetch(pinout).await as u16;
     }
 
     /**
@@ -558,8 +577,8 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * Note: the high byte is always zero, page boundary crossings wrap
      * around instead.
      */
-    async fn zeropage_x(&mut self) {
-        self.address = self.fetch().await.wrapping_add(self.x) as u16;
+    async fn zeropage_x(&mut self, pinout: &impl Pinout) {
+        self.address = self.fetch(pinout).await.wrapping_add(self.x) as u16;
         self.clock.advance(1);
     }
 
@@ -570,8 +589,8 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * Note: the high byte is always zero, page boundary crossings wrap
      * around instead.
      */
-    async fn zeropage_y(&mut self) {
-        self.address = self.fetch().await.wrapping_add(self.y) as u16;
+    async fn zeropage_y(&mut self, pinout: &impl Pinout) {
+        self.address = self.fetch(pinout).await.wrapping_add(self.y) as u16;
         self.clock.advance(1);
     }
 
@@ -579,8 +598,8 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * Relative addressing loads the program counter, offset by a given
      * amount.
      */
-    async fn relative(&mut self) {
-        let offset = self.fetch().await as i8;
+    async fn relative(&mut self, pinout: &impl Pinout) {
+        let offset = self.fetch(pinout).await as i8;
         self.address = self.program_counter.wrapping_add(offset as u16);
     }
 
@@ -588,9 +607,9 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * Absolute addressing loads the two bytes after the opcode into a
      * 16-bit word that it uses as effective address.
      */
-    async fn absolute(&mut self) {
-        let low_byte = self.fetch().await;
-        let high_byte = self.fetch().await;
+    async fn absolute(&mut self, pinout: &impl Pinout) {
+        let low_byte = self.fetch(pinout).await;
+        let high_byte = self.fetch(pinout).await;
         self.address = u16::from_bytes(low_byte, high_byte);
     }
 
@@ -601,8 +620,8 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * Read instructions using the absolute X addressing mode take an extra
      * cycle if the address increment crosses a page.
      */
-    async fn absolute_x_read(&mut self) {
-        self.absolute().await;
+    async fn absolute_x_read(&mut self, pinout: &impl Pinout) {
+        self.absolute(pinout).await;
         let address = self.address.wrapping_add(self.x as u16);
         let page_crossing = address.high_byte() != self.address.high_byte();
         if page_crossing {
@@ -618,8 +637,8 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * Read instructions using the absolute Y addressing mode take an extra
      * cycle if the address increment crosses a page.
      */
-    async fn absolute_y_read(&mut self) {
-        self.absolute().await;
+    async fn absolute_y_read(&mut self, pinout: &impl Pinout) {
+        self.absolute(pinout).await;
         let address = self.address.wrapping_add(self.y as u16);
         let page_crossing = address.high_byte() != self.address.high_byte();
         if page_crossing {
@@ -635,8 +654,8 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * Read instructions using the absolute X addressing mode take an extra
      * cycle if the address increment crosses  apge.
      */
-    async fn absolute_x_write(&mut self) {
-        self.absolute().await;
+    async fn absolute_x_write(&mut self, pinout: &impl Pinout) {
+        self.absolute(pinout).await;
         self.address = self.address.wrapping_add(self.x as u16);
         self.clock.advance(1);
     }
@@ -648,8 +667,8 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * Write instructions using the absolute Y addressing mode always take an
      * extra cycle.
      */
-    async fn absolute_y_write(&mut self) {
-        self.absolute().await;
+    async fn absolute_y_write(&mut self, pinout: &impl Pinout) {
+        self.absolute(pinout).await;
         self.address = self.address.wrapping_add(self.y as u16);
         self.clock.advance(1);
     }
@@ -661,15 +680,15 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * correctly cross that page boundary, e.g. $00ff reads from ($00ff, $0000)
      * instead of ($00ff, $0100).
      */
-    async fn indirect(&mut self) {
-        self.absolute().await;
+    async fn indirect(&mut self, pinout: &impl Pinout) {
+        self.absolute(pinout).await;
         let high_address = u16::from_bytes(
             self.address.low_byte().wrapping_add(1),
             self.address.high_byte()
         );
-        let low_byte = self.read().await;
+        let low_byte = self.read(pinout).await;
         self.address = high_address;
-        let high_byte = self.read().await;
+        let high_byte = self.read(pinout).await;
         self.address = u16::from_bytes(low_byte, high_byte)
     }
 
@@ -677,11 +696,11 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * Indexed indirect reads the 16-bit target address from the memory found
      * at a zero page X-indexed address.
      */
-    async fn indirect_x(&mut self) {
-        self.zeropage_x().await;
-        let low_byte = self.read().await;
+    async fn indirect_x(&mut self, pinout: &impl Pinout) {
+        self.zeropage_x(pinout).await;
+        let low_byte = self.read(pinout).await;
         self.address = self.address.low_byte().wrapping_add(1) as u16;
-        let high_byte = self.read().await;
+        let high_byte = self.read(pinout).await;
         self.address = u16::from_bytes(low_byte, high_byte)
     }
 
@@ -690,11 +709,11 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * location found using zero page indexing.
      * If a page boundary is crossed when adding Y, an extra cycle is used.
      */
-    async fn indirect_y_read(&mut self) {
-        self.zeropage().await;
-        let low_byte = self.read().await;
+    async fn indirect_y_read(&mut self, pinout: &impl Pinout) {
+        self.zeropage(pinout).await;
+        let low_byte = self.read(pinout).await;
         self.address = self.address.low_byte().wrapping_add(1) as u16;
-        let high_byte = self.read().await;
+        let high_byte = self.read(pinout).await;
         let address = u16::from_bytes(low_byte, high_byte);
         self.address = address.wrapping_add(self.y as u16);
 
@@ -710,11 +729,11 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * Write instructions addressed using indirect Y always use an additional
      * cycle to correct for a page crossing when adding Y.
      */
-    async fn indirect_y_write(&mut self) {
-        self.zeropage().await;
-        let low_byte = self.read().await;
+    async fn indirect_y_write(&mut self, pinout: &impl Pinout) {
+        self.zeropage(pinout).await;
+        let low_byte = self.read(pinout).await;
         self.address = self.address.low_byte().wrapping_add(1) as u16;
-        let high_byte = self.read().await;
+        let high_byte = self.read(pinout).await;
         self.address = u16::from_bytes(low_byte, high_byte).wrapping_add(self.y as u16);
         self.clock.advance(1);
     }
@@ -966,15 +985,15 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
     /**
      * BRK - Force interrupt
      */
-    async fn brk(&mut self) {
+    async fn brk(&mut self, pinout: &impl Pinout) {
         self.clock.advance(1); // Dummy read
-        self.push(self.program_counter.high_byte()).await;
-        self.push(self.program_counter.low_byte()).await;
-        self.push(self.status.instruction_value()).await;
+        self.push(pinout, self.program_counter.high_byte()).await;
+        self.push(pinout, self.program_counter.low_byte()).await;
+        self.push(pinout, self.status.instruction_value()).await;
         self.address = 0xfffe;
         self.program_counter = Word::from_bytes(
-            self.fetch().await,
-            self.read().await,
+            self.fetch(pinout).await,
+            self.read(pinout).await,
         );
     }
 
@@ -988,37 +1007,37 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
     /**
      * JSR - Jump to subroutine
      */
-    async fn jsr(&mut self) {
-        let low_byte = self.fetch().await;
+    async fn jsr(&mut self, pinout: &impl Pinout) {
+        let low_byte = self.fetch(pinout).await;
         self.clock.advance(1);
-        self.push(self.program_counter.high_byte()).await;
-        self.push(self.program_counter.low_byte()).await;
-        let high_byte = self.fetch().await;
+        self.push(pinout, self.program_counter.high_byte()).await;
+        self.push(pinout, self.program_counter.low_byte()).await;
+        let high_byte = self.fetch(pinout).await;
         self.program_counter = Word::from_bytes(low_byte, high_byte);
     }
 
     /**
      * PHA - Push accumulator
      */
-    async fn pha(&mut self) {
+    async fn pha(&mut self, pinout: &impl Pinout) {
         self.clock.advance(1);
-        self.push(self.a).await;
+        self.push(pinout, self.a).await;
     }
 
     /**
      * PHP - Push processor status
      */
-    async fn php(&mut self) {
+    async fn php(&mut self, pinout: &impl Pinout) {
         self.clock.advance(1);
-        self.push(self.status.instruction_value()).await;
+        self.push(pinout, self.status.instruction_value()).await;
     }
 
     /**
      * PLA - Pull accumulator
      */
-    async fn pla(&mut self) {
+    async fn pla(&mut self, pinout: &impl Pinout) {
         self.clock.advance(2);
-        self.a = self.pull().await;
+        self.a = self.pull(pinout).await;
         self.status.zero = self.a == 0;
         self.status.negative = self.a.bit(7);
     }
@@ -1026,31 +1045,31 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
     /**
      * PLP - Pull processor status
      */
-    async fn plp(&mut self) {
+    async fn plp(&mut self, pinout: &impl Pinout) {
         self.clock.advance(2);
-        self.status = self.pull().await.into();
+        self.status = self.pull(pinout).await.into();
     }
 
     /**
      * RTI - Return from interrupt
      */
-    async fn rti(&mut self) {
+    async fn rti(&mut self, pinout: &impl Pinout) {
         self.clock.advance(2); // Dummy read and pre-increment of stack pointer
-        self.status = self.pull().await.into();
+        self.status = self.pull(pinout).await.into();
         self.program_counter = u16::from_bytes(
-            self.pull().await,
-            self.pull().await
+            self.pull(pinout).await,
+            self.pull(pinout).await
         );
     }
 
     /**
      * RTS - Return from subroutine
      */
-    async fn rts(&mut self) {
+    async fn rts(&mut self, pinout: &impl Pinout) {
         self.clock.advance(2); // Dummy read and pre-increment of stack pointer
         self.program_counter = u16::from_bytes(
-            self.pull().await,
-            self.pull().await
+            self.pull(pinout).await,
+            self.pull(pinout).await
         ).wrapping_add(1);
         self.clock.advance(1);
     }
@@ -1116,29 +1135,29 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
     /**
      * Stores the accumulator in memory
      */
-    async fn sta(&mut self) {
-        self.write(self.a).await;
+    async fn sta(&mut self, pinout: &impl Pinout) {
+        self.write(pinout, self.a).await;
     }
 
     /**
      * Stores the X register in memory
      */
-    async fn stx(&mut self) {
-        self.write(self.x).await;
+    async fn stx(&mut self, pinout: &impl Pinout) {
+        self.write(pinout, self.x).await;
     }
 
     /**
      * Stores the Y register in memory
      */
-    async fn sty(&mut self) {
-        self.write(self.y).await;
+    async fn sty(&mut self, pinout: &impl Pinout) {
+        self.write(pinout, self.y).await;
     }
 
     /**
      * Stores the bitwise AND of the X and accumulator register in memory
      */
-    async fn sax(&mut self) {
-        self.write(self.a & self.x).await;
+    async fn sax(&mut self, pinout: &impl Pinout) {
+        self.write(pinout, self.a & self.x).await;
     }
 
     /**
@@ -1205,7 +1224,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
     }
 }
 
-impl<'nes, Memory: Pinout> std::fmt::Debug for Ricoh2A03<'nes, Memory> {
+impl std::fmt::Debug for Ricoh2A03 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f,
             "\n${:04x}\tA:${:02x} X:${:02x} Y:${:02x} P:{:?} SP:${:02x} CYC:{}",
@@ -1227,7 +1246,7 @@ impl<'nes, Memory: Pinout> std::fmt::Debug for Ricoh2A03<'nes, Memory> {
  * between implementations (if they even exist).
  */
 #[cfg(test)]
-impl<'nes, Memory: Pinout> PartialEq for Ricoh2A03<'nes, Memory> {
+impl PartialEq for Ricoh2A03 {
     fn eq(&self, rhs: &Self) -> bool {
         self.clock == rhs.clock
         && self.status == rhs.status
@@ -1240,13 +1259,13 @@ impl<'nes, Memory: Pinout> PartialEq for Ricoh2A03<'nes, Memory> {
 }
 
 #[cfg(test)]
-impl<'nes, Memory: Pinout> Eq for Ricoh2A03<'nes, Memory> {}
+impl Eq for Ricoh2A03 {}
 
 /**
  * Clone is needed to construct a history of CPU states.
  */
 #[cfg(test)]
-impl<'nes, Memory: Pinout> Clone for Ricoh2A03<'nes, Memory> {
+impl Clone for Ricoh2A03 {
     fn clone(&self) -> Self {
         Self {
             clock: self.clock.clone(),
@@ -1258,7 +1277,6 @@ impl<'nes, Memory: Pinout> Clone for Ricoh2A03<'nes, Memory> {
             y: self.y,
             operand: self.operand,
             address: self.address,
-            pinout: self.pinout,
         }
     }
 }
@@ -1491,7 +1509,7 @@ mod instruction_set {
     #[test]
     fn cycles() {
         let bus = DummyMemory::new();
-        let mut cpu = Ricoh2A03::reset(&bus);
+        let mut cpu = Ricoh2A03::reset();
 
         macro_rules! check_cycles {
             ($opcode:expr, $cycles:expr, $instruction:expr, $addressing:expr) => {{
@@ -1500,7 +1518,7 @@ mod instruction_set {
                 cpu.y = 0;
 
                 let start = cpu.clock.current();
-                futures::executor::block_on(cpu.execute($opcode));
+                futures::executor::block_on(cpu.execute(&bus, $opcode));
 
                 // Add one cycle to compensate for missing opcode read
                 let cycles = cpu.clock.current() + 1 - start;
@@ -1698,7 +1716,7 @@ mod instruction_set {
     #[test]
     fn bytes() {
         let bus = DummyMemory::new();
-        let mut cpu = Ricoh2A03::reset(&bus);
+        let mut cpu = Ricoh2A03::reset();
 
         macro_rules! check_bytes {
             ($opcode:expr, $bytes:expr, $instruction:expr, $addressing:expr) => {{
@@ -1707,7 +1725,7 @@ mod instruction_set {
                 cpu.y = 0;
 
                 let first_byte = cpu.program_counter;
-                futures::executor::block_on(cpu.execute($opcode));
+                futures::executor::block_on(cpu.execute(&bus, $opcode));
 
                 // Add one byte to compensate for missing opcode read
                 let bytes = cpu.program_counter + 1 - first_byte;
@@ -1894,10 +1912,10 @@ mod instruction_set {
             bus.data[0xc000] = Cell::from(0xff);
             bus
         };
-        let mut cpu = Ricoh2A03::reset(&bus);
+        let mut cpu = Ricoh2A03::reset();
         cpu.program_counter = 0xc000;
 
-        futures::executor::block_on(cpu.execute(0x4c));
+        futures::executor::block_on(cpu.execute(&bus, 0x4c));
         assert_eq!(cpu.program_counter, 0x00ff);
     }
 
@@ -1907,12 +1925,12 @@ mod instruction_set {
         use std::io::BufReader;
 
         let bus = DummyMemory::load_nestest(std::path::Path::new("nestest.nes")).expect("Unable to load nestest rom");
-        let mut cpu = Ricoh2A03::reset(&bus);
+        let mut cpu = Ricoh2A03::reset();
         let nintendulator = BufReader::new(File::open("nestest.log").expect("Unable to load nestest log"));
 
         let mut history = Vec::new();
         for _ in 0..50 {
-            history.push((Ricoh2A03::reset(&bus), String::new()));
+            history.push((Ricoh2A03::reset(), String::new()));
         }
 
         for log_line in nintendulator.lines() {
@@ -1934,7 +1952,7 @@ mod instruction_set {
                 nintendulator
             );
 
-            futures::executor::block_on(cpu.step());
+            futures::executor::block_on(cpu.step(&bus));
         }
 
         assert_eq!(bus.read(0x0002, &cpu.clock), Some(0x00), "Nestest failed: byte at $02 not $00, documented opcodes wrong");

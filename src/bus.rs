@@ -104,12 +104,12 @@ mod access {
         use std::io::*;
 
         let bus = Bus::from_rom("nestest.nes").expect("Unable to load nestest rom");
-        let mut cpu = cpu::Ricoh2A03::reset(&bus);
+        let mut cpu = cpu::Ricoh2A03::reset();
         let nintendulator = BufReader::new(File::open("nestest.log").expect("Unable to load nestest log"));
 
         let mut history = Vec::new();
         for _ in 0..50 {
-            history.push((cpu::Ricoh2A03::reset(&bus), String::new()));
+            history.push((cpu::Ricoh2A03::reset(), String::new()));
         }
 
         for log_line in nintendulator.lines() {
@@ -131,7 +131,7 @@ mod access {
                 nintendulator
             );
 
-            futures::executor::block_on(cpu.step());
+            futures::executor::block_on(cpu.step(&bus));
         }
 
         {
