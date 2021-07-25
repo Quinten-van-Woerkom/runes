@@ -456,7 +456,7 @@ impl<'nes, Memory: Bus> Ricoh2A03<'nes, Memory> {
         loop {
             match self.bus.unwrap().write(self.address, data, &self.clock) {
                 None => yields().await,
-                Some(_) => self.clock.advance(1),
+                Some(()) => return self.clock.advance(1),
             }
         }
     }
