@@ -44,7 +44,6 @@ pub trait Cartridge {
     fn ppu_write(&self, address: u16, value: u8);
 }
 
-
 /**
  * Loads a cartridge from an NES 2.0 file.
  * Can fail if the file cannot be read, if the file does not contain a validly
@@ -55,7 +54,7 @@ pub fn load_cartridge(path: &str) -> Result<Box<dyn Cartridge>, std::io::Error> 
     let header = Header::load(&mut file)?;
 
     match header.mapper() {
-        0 => unimplemented!(),
+        0 => Ok(Mapper0::load(header, &mut file)?),
         _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "Trying to load unsupported mapper"))
     }
 }
@@ -256,7 +255,7 @@ impl Mapper0 {
      *  1. The header should correspond to the passed file.
      *  2. The mapper corresponding to the file and header should be mapper 0.
      */
-    fn load(header: Header, file: &mut File) -> Result<Self, std::io::Error> {
+    fn load(header: Header, file: &mut File) -> Result<Box<Self>, std::io::Error> {
         assert!(header.mapper() == 0, "Cannot construct NROM cartridge from different mapper");
         
         let prg_ram = {
@@ -287,7 +286,7 @@ impl Mapper0 {
         let prg_rom = read_exact_to_vec(file, header.prg_rom_size())?;
         let chr_rom = read_exact_to_vec(file, header.chr_rom_size())?;
 
-        Ok(Mapper0 { header, prg_ram, prg_rom, chr_rom })
+        Ok(Box::new(Mapper0 { header, prg_ram, prg_rom, chr_rom }))
     }
 }
 

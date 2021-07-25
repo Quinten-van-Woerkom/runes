@@ -44,7 +44,7 @@ pub struct Ricoh2A03<'nes, Memory: Bus> {
 }
 
 impl<'nes, Memory: Bus> Ricoh2A03<'nes, Memory> {
-    pub fn new(bus: &'nes Memory) -> Self {
+    pub fn reset(bus: &'nes Memory) -> Self {
         Self {
             clock: Clock::from(7), // Start-up takes 7 cycles
             program_counter: 0xc000,
@@ -59,13 +59,33 @@ impl<'nes, Memory: Bus> Ricoh2A03<'nes, Memory> {
         }
     }
 
+    pub fn new(cycle: u64, status: u8, program_counter: u16, stack_pointer: u8,
+                a: u8, x: u8, y: u8, bus: Option<&'nes Memory>) -> Self {
+        Self {
+            clock: Clock::from(cycle),
+            status: status.into(),
+            program_counter,
+            stack_pointer,
+            a,
+            x,
+            y,
+            operand: 0x00,
+            address: 0x0000,
+            bus: bus,
+        }
+    }
+
     pub async fn run(&mut self) {
         loop {
             self.step().await;
         }
     }
 
-    async fn step(&mut self) {
+    pub fn cycle(&self) -> u64 {
+        self.clock.current()
+    }
+
+    pub async fn step(&mut self) {
         let opcode = self.fetch().await;
         self.execute(opcode).await;
     }
@@ -1355,7 +1375,7 @@ mod test {
         #[test]
         fn cycles() {
             let bus = ArrayBus::new();
-            let mut cpu = Ricoh2A03::new(&bus);
+            let mut cpu = Ricoh2A03::reset(&bus);
 
             macro_rules! check_cycles {
                 ($opcode:expr, $cycles:expr, $instruction:expr, $addressing:expr) => {{
@@ -1552,7 +1572,7 @@ mod test {
         #[test]
         fn bytes() {
             let bus = ArrayBus::new();
-            let mut cpu = Ricoh2A03::new(&bus);
+            let mut cpu = Ricoh2A03::reset(&bus);
 
             macro_rules! check_bytes {
                 ($opcode:expr, $bytes:expr, $instruction:expr, $addressing:expr) => {{
@@ -1738,7 +1758,7 @@ mod test {
                 bus.data[0xc000] = Cell::from(0xff);
                 bus
             };
-            let mut cpu = Ricoh2A03::new(&bus);
+            let mut cpu = Ricoh2A03::reset(&bus);
             cpu.program_counter = 0xc000;
 
             futures::executor::block_on(cpu.execute(0x4c));
@@ -1751,12 +1771,12 @@ mod test {
             use std::io::BufReader;
 
             let bus = ArrayBus::load_nestest(std::path::Path::new("nestest.nes")).expect("Unable to load nestest rom");
-            let mut cpu = Ricoh2A03::new(&bus);
+            let mut cpu = Ricoh2A03::reset(&bus);
             let nintendulator = BufReader::new(File::open("nestest.log").expect("Unable to load nestest log"));
 
             let mut history: Vec<(Ricoh2A03<ArrayBus>, String)> = Vec::new();
             for _ in 0..50 {
-                history.push((Ricoh2A03::new(&bus), String::new()));
+                history.push((Ricoh2A03::reset(&bus), String::new()));
             }
 
             for log_line in nintendulator.lines() {
