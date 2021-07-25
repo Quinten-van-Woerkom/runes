@@ -59,7 +59,7 @@ impl Future for Yields {
 }
 
 #[cfg(test)]
-mod test {
+mod yields {
     use super::*;
 
     #[test]

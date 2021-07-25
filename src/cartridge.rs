@@ -222,6 +222,24 @@ enum TimingMode {
     Dendy,
 }
 
+#[cfg(test)]
+mod header {
+    use super::*;
+
+    #[test]
+    fn loading() {
+        let mut file = File::open("Donkey Kong (World) (Rev A).nes").unwrap();
+        let header = Header::load(&mut file).unwrap();
+
+        assert_eq!(header.prg_rom_size(), 16384);
+        assert_eq!(header.chr_rom_size(), 8192);
+        assert_eq!(header.prg_ram_size(), 0);
+        assert_eq!(header.chr_ram_size(), 0);
+        assert_eq!(header.prg_nvram_size(), 0);
+        assert_eq!(header.chr_nvram_size(), 0);
+        assert_eq!(header.timing_mode(), TimingMode::Ntsc)
+    }
+}
 
 /**
  * Convenience function to read exactly <len> bytes from a file to create a new
@@ -321,25 +339,11 @@ impl Cartridge for Mapper0 {
 }
 
 #[cfg(test)]
-mod test {
+mod mapper0 {
     use super::*;
 
     #[test]
-    fn header_loading() {
-        let mut file = File::open("Donkey Kong (World) (Rev A).nes").unwrap();
-        let header = Header::load(&mut file).unwrap();
-
-        assert_eq!(header.prg_rom_size(), 16384);
-        assert_eq!(header.chr_rom_size(), 8192);
-        assert_eq!(header.prg_ram_size(), 0);
-        assert_eq!(header.chr_ram_size(), 0);
-        assert_eq!(header.prg_nvram_size(), 0);
-        assert_eq!(header.chr_nvram_size(), 0);
-        assert_eq!(header.timing_mode(), TimingMode::Ntsc)
-    }
-
-    #[test]
-    fn mapper0_loading() {
+    fn loading() {
         let mut file = File::open("Donkey Kong (World) (Rev A).nes").unwrap();
         let header = Header::load(&mut file).unwrap();
         let cartridge = Mapper0::load(header, &mut file).unwrap();

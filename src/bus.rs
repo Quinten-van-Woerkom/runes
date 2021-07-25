@@ -99,9 +99,15 @@ struct PpuRegisters {}
 struct ApuRegisters {}
 
 #[cfg(test)]
-mod test {
+mod access {
     use super::*;
 
+    /**
+     * Since we already validate the CPU's instruction set correctness using a
+     * dummy implementation of a bus, we can also validate the bus' correctness
+     * by running nestest again, but then with the actual bus implementation
+     * itself.
+     */
     #[test]
     fn nestest() {
         use std::fs::File;
