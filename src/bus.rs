@@ -60,7 +60,7 @@ impl Bus {
     }
 }
 
-impl cpu::Bus for Bus {
+impl cpu::Pinout for Bus {
     fn read(&self, address: u16, time: &Clock) -> Option<u8> {
         match address {
             0x0000..=0x1fff => Some(self.ram[(address % 0x800) as usize].get()),
@@ -145,7 +145,7 @@ mod access {
         }
 
         {
-            use crate::cpu::Bus;
+            use crate::cpu::Pinout;
             assert_eq!(bus.read(0x0002, &Clock::from(cpu.cycle())), Some(0x00), "Nestest failed: byte at $02 not $00, documented opcodes wrong");
             assert_eq!(bus.read(0x0003, &Clock::from(cpu.cycle())), Some(0x00), "Nestest failed: byte at $03 not $00, illegal opcodes wrong");
         }

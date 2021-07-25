@@ -30,7 +30,7 @@ use crate::yields::yields;
 /**
  * Emulated internals of the Ricoh 2A03.
  */
-pub struct Ricoh2A03<'nes, Memory: Bus> {
+pub struct Ricoh2A03<'nes, Memory: Pinout> {
     clock: Clock,
     status: Status,
     program_counter: u16,
@@ -43,7 +43,7 @@ pub struct Ricoh2A03<'nes, Memory: Bus> {
     bus: Option<&'nes Memory>, // Reference to the memory bus
 }
 
-impl<'nes, Memory: Bus> Ricoh2A03<'nes, Memory> {
+impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
     pub fn reset(bus: &'nes Memory) -> Self {
         Self {
             clock: Clock::from(7), // Start-up takes 7 cycles
@@ -1142,7 +1142,7 @@ impl<'nes, Memory: Bus> Ricoh2A03<'nes, Memory> {
     }
 }
 
-impl<'nes, Memory: Bus> std::fmt::Debug for Ricoh2A03<'nes, Memory> {
+impl<'nes, Memory: Pinout> std::fmt::Debug for Ricoh2A03<'nes, Memory> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f,
             "\n${:04x}\tA:${:02x} X:${:02x} Y:${:02x} P:{:?} SP:${:02x} CYC:{}",
@@ -1164,7 +1164,7 @@ impl<'nes, Memory: Bus> std::fmt::Debug for Ricoh2A03<'nes, Memory> {
  * between implementations (if they even exist).
  */
 #[cfg(test)]
-impl<'nes, Memory: Bus> PartialEq for Ricoh2A03<'nes, Memory> {
+impl<'nes, Memory: Pinout> PartialEq for Ricoh2A03<'nes, Memory> {
     fn eq(&self, rhs: &Self) -> bool {
         self.clock == rhs.clock
         && self.status == rhs.status
@@ -1177,13 +1177,13 @@ impl<'nes, Memory: Bus> PartialEq for Ricoh2A03<'nes, Memory> {
 }
 
 #[cfg(test)]
-impl<'nes, Memory: Bus> Eq for Ricoh2A03<'nes, Memory> {}
+impl<'nes, Memory: Pinout> Eq for Ricoh2A03<'nes, Memory> {}
 
 /**
  * Clone is needed to construct a history of CPU states.
  */
 #[cfg(test)]
-impl<'nes, Memory: Bus> Clone for Ricoh2A03<'nes, Memory> {
+impl<'nes, Memory: Pinout> Clone for Ricoh2A03<'nes, Memory> {
     fn clone(&self) -> Self {
         Self {
             clock: self.clock.clone(),
@@ -1203,7 +1203,7 @@ impl<'nes, Memory: Bus> Clone for Ricoh2A03<'nes, Memory> {
 
 /**
  * Any address bus used with the Ricoh 2A03 must implement this trait to allow
- * for interoperability. Corresponds with the CPU pin out, conceptually.
+ * for interoperability. Corresponds with the CPU pinout, conceptually.
  * 
  * Functions return an empty Option only when the addressed memory or device is
  * not yet ready, i.e. if some other device must be emulated further in time
@@ -1212,7 +1212,7 @@ impl<'nes, Memory: Bus> Clone for Ricoh2A03<'nes, Memory> {
  * solution, but it has overhead in terms of memory allocations, which add up
  * to a significant amount when used for every read or write.
  */
-pub trait Bus {
+pub trait Pinout {
     fn read(&self, address: u16, time: &Clock) -> Option<u8>;
     fn write(&self, address: u16, data: u8, time: &Clock) -> Option<()>;
 
@@ -1410,7 +1410,7 @@ mod instruction_set {
         }
     }
 
-    impl Bus for ArrayBus {
+    impl Pinout for ArrayBus {
         fn read(&self, address: u16, _time: &Clock) -> Option<u8> {
             Some(self.data[address as usize].get())
         }
