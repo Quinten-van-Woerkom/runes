@@ -1154,6 +1154,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * Immediate AND followed by LSR A.
      * Cannot be implemented in terms of those two instructions because of
      * timing problems, however.
+     * TODO: Implement tests to ensure correctness.
      */
     async fn alr(&mut self) {
         self.a &= self.operand;
@@ -1168,6 +1169,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
      * - N, Z are normal
      * - C is bit 6 of the accumulator
      * - V is bit 6 xor bit 5 of the accumulator
+     * TODO: Implement tests to ensure correctness.
      */
     async fn arr(&mut self) {
         self.a &= self.operand;
