@@ -1910,7 +1910,7 @@ mod instruction_set {
         let mut cpu = Ricoh2A03::reset(&bus);
         let nintendulator = BufReader::new(File::open("nestest.log").expect("Unable to load nestest log"));
 
-        let mut history: Vec<(Ricoh2A03<ArrayBus>, String)> = Vec::new();
+        let mut history = Vec::new();
         for _ in 0..50 {
             history.push((Ricoh2A03::reset(&bus), String::new()));
         }
