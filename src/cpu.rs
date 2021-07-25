@@ -43,30 +43,15 @@ pub struct Ricoh2A03 {
 }
 
 impl Ricoh2A03 {
-    pub fn reset() -> Self {
+    pub fn new() -> Self {
         Self {
             clock: Clock::from(7), // Start-up takes 7 cycles
-            program_counter: 0xc000,
             status: Status::new(),
+            program_counter: 0xc000,
             stack_pointer: 0xfd,
             a: 0x00,
             x: 0x00,
             y: 0x00,
-            operand: 0x00,
-            address: 0x0000,
-        }
-    }
-
-    pub fn new(cycle: u64, status: u8, program_counter: u16, stack_pointer: u8,
-                a: u8, x: u8, y: u8) -> Self {
-        Self {
-            clock: Clock::from(cycle),
-            status: status.into(),
-            program_counter,
-            stack_pointer,
-            a,
-            x,
-            y,
             operand: 0x00,
             address: 0x0000,
         }
@@ -93,7 +78,17 @@ impl Ricoh2A03 {
         let status = u8::from_str_radix(state.next().unwrap().strip_prefix("P:").unwrap(), 16).unwrap();
         let stack_pointer = u8::from_str_radix(state.next().unwrap().strip_prefix("SP:").unwrap(), 16).unwrap();
 
-        Self::new(cycle, status, program_counter, stack_pointer, a, x, y)
+        Self {
+            clock: Clock::from(cycle),
+            status: status.into(),
+            program_counter,
+            stack_pointer,
+            a,
+            x,
+            y,
+            operand: 0x00,
+            address: 0x0000,
+        }
     }
 
     pub async fn run(&mut self, pinout: &impl Pinout) {
@@ -1509,7 +1504,7 @@ mod instruction_set {
     #[test]
     fn cycles() {
         let bus = DummyMemory::new();
-        let mut cpu = Ricoh2A03::reset();
+        let mut cpu = Ricoh2A03::new();
 
         macro_rules! check_cycles {
             ($opcode:expr, $cycles:expr, $instruction:expr, $addressing:expr) => {{
@@ -1716,7 +1711,7 @@ mod instruction_set {
     #[test]
     fn bytes() {
         let bus = DummyMemory::new();
-        let mut cpu = Ricoh2A03::reset();
+        let mut cpu = Ricoh2A03::new();
 
         macro_rules! check_bytes {
             ($opcode:expr, $bytes:expr, $instruction:expr, $addressing:expr) => {{
@@ -1912,7 +1907,7 @@ mod instruction_set {
             bus.data[0xc000] = Cell::from(0xff);
             bus
         };
-        let mut cpu = Ricoh2A03::reset();
+        let mut cpu = Ricoh2A03::new();
         cpu.program_counter = 0xc000;
 
         futures::executor::block_on(cpu.execute(&bus, 0x4c));
@@ -1925,12 +1920,12 @@ mod instruction_set {
         use std::io::BufReader;
 
         let bus = DummyMemory::load_nestest(std::path::Path::new("nestest.nes")).expect("Unable to load nestest rom");
-        let mut cpu = Ricoh2A03::reset();
+        let mut cpu = Ricoh2A03::new();
         let nintendulator = BufReader::new(File::open("nestest.log").expect("Unable to load nestest log"));
 
         let mut history = Vec::new();
         for _ in 0..50 {
-            history.push((Ricoh2A03::reset(), String::new()));
+            history.push((Ricoh2A03::new(), String::new()));
         }
 
         for log_line in nintendulator.lines() {
