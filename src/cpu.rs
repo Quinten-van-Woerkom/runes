@@ -326,7 +326,7 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
             0x68 => implied!(pla),
             0x69 => read!(adc, immediate),
             0x6a => modify!(ror, accumulator),
-            0x6b => unimplemented!("Encountered unimplemented opcode ${:x}, CPU state: {:?}", opcode, self),
+            0x6b => read!(arr, immediate),
             0x6c => address!(jmp, indirect),
             0x6d => read!(adc, absolute),
             0x6e => modify!(ror, absolute),
@@ -1162,6 +1162,21 @@ impl<'nes, Memory: Pinout> Ricoh2A03<'nes, Memory> {
         self.status.zero = self.a == 0;
         self.status.negative = self.a.bit(7);
     }
+
+    /**
+     * Similar to immediate AND followed by ROR A, except for different flags:
+     * - N, Z are normal
+     * - C is bit 6 of the accumulator
+     * - V is bit 6 xor bit 5 of the accumulator
+     */
+    async fn arr(&mut self) {
+        self.a &= self.operand;
+        self.a = (self.a >> 1).change_bit(7, self.status.carry);
+        self.status.zero = self.a == 0;
+        self.status.negative = self.a.bit(7);
+        self.status.carry = self.a.bit(6);
+        self.status.overflow = self.a.bit(6) ^ self.a.bit(5);
+    }
 }
 
 impl<'nes, Memory: Pinout> std::fmt::Debug for Ricoh2A03<'nes, Memory> {
@@ -1555,6 +1570,7 @@ mod instruction_set {
         check_cycles!(0x68, 4, "PLA", "Implied");
         check_cycles!(0x69, 2, "ADC", "Immediate");
         check_cycles!(0x6a, 2, "ROR", "Accumulator");
+        check_cycles!(0x6b, 2, "ARR", "Immediate");
         check_cycles!(0x6c, 5, "JMP", "Indirect");
         check_cycles!(0x6d, 4, "ADC", "Absolute");
         check_cycles!(0x6e, 6, "ROR", "Absolute");
@@ -1741,6 +1757,7 @@ mod instruction_set {
         check_bytes!(0x68, 1, "PLA", "Implied");
         check_bytes!(0x69, 2, "ADC", "Immediate");
         check_bytes!(0x6a, 1, "ROR", "Accumulator");
+        check_bytes!(0x6b, 2, "ARR", "Immediate");
         check_bytes!(0x6d, 3, "ADC", "Absolute");
         check_bytes!(0x6e, 3, "ROR", "Absolute");
         check_bytes!(0x70, 2, "BVS", "Relative", overflow, true);
