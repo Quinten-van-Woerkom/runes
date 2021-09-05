@@ -677,7 +677,7 @@ impl Ricoh2A03 {
      * address obtained from absolute addressing. Write instructions or read
      * instructions crossing a page boundary take one extra cycle.
      * Read instructions using the absolute X addressing mode take an extra
-     * cycle if the address increment crosses  apge.
+     * cycle if the address increment crosses a page.
      */
     async fn absolute_x_write(&self, pinout: &impl Pinout) {
         self.absolute(pinout).await;
