@@ -126,7 +126,7 @@ mod access {
         use std::io::*;
 
         let bus = Memory::from_rom("nestest.nes").expect("Unable to load nestest rom");
-        let mut cpu = cpu::Ricoh2A03::new();
+        let cpu = cpu::Ricoh2A03::new();
         let nintendulator = BufReader::new(File::open("nestest.log").expect("Unable to load nestest log"));
 
         let mut history = Vec::new();
