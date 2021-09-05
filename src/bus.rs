@@ -134,32 +134,34 @@ mod access {
             history.push((cpu::Ricoh2A03::new(), String::new()));
         }
 
-        for log_line in nintendulator.lines() {
+        for (index, log_line) in nintendulator.lines().enumerate() {
             let log_line = log_line.expect("Error reading Nintendulator log line");
             let nintendulator = cpu::Ricoh2A03::from_nintendulator(&log_line);
+            history[index % 50] = (cpu.clone(), log_line);
 
-            // Terribly inefficient, but fine, it's the easiest way to show
-            // the execution history in order.
-            history[0] = (cpu.clone(), log_line.clone());
-            history.sort_by(|a, b| a.0.cycle().cmp(&b.0.cycle()));
-            
-            assert_eq!(cpu, nintendulator,
-                "\nHistory:\n{:?}
-                \nDoes not match Nintendulator log:\
-                {:?} (Current)\
-                {:?} (Correct)\n",
-                history,
-                cpu,
-                nintendulator
-            );
+            if cpu != nintendulator {
+                if index >= 50 {
+                    history.rotate_left(index % 50 + 1);
+                }
+
+                assert_eq!(cpu, nintendulator,
+                    "\nHistory:\n{:?}
+                    \nDoes not match Nintendulator log:\
+                    {:?} (Current)\
+                    {:?} (Correct)\n",
+                    &history[0..index.min(50)],
+                    cpu,
+                    nintendulator
+                );
+            }
 
             futures::executor::block_on(cpu.step(&bus));
         }
 
         {
             use crate::cpu::Pinout;
-            assert_eq!(bus.read(0x0002, cpu.cycle()), Some(0x00), "Nestest failed: byte at $02 not $00, documented opcodes wrong");
-            assert_eq!(bus.read(0x0003, cpu.cycle()), Some(0x00), "Nestest failed: byte at $03 not $00, illegal opcodes wrong");
+            assert_eq!(bus.read(0x0002, 0), Some(0x00), "Nestest failed: byte at $02 not $00, documented opcodes wrong");
+            assert_eq!(bus.read(0x0003, 0), Some(0x00), "Nestest failed: byte at $03 not $00, illegal opcodes wrong");
         }
     }
 }
