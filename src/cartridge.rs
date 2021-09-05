@@ -24,6 +24,7 @@
  */
 
 use crate::bitwise::Bitwise;
+use crate::clock::Clock;
 use std::cell::Cell;
 use std::io::Read;
 use std::fs::File;
@@ -40,10 +41,10 @@ use std::fs::File;
  * Conceptually, corresponds to the cartridge pinout.
  */
 pub trait Cartridge {
-    fn cpu_read(&self, address: u16, cycle: usize) -> Option<u8>;
-    fn cpu_write(&self, address: u16, value: u8, cycle: usize) -> Option<()>;
-    fn ppu_read(&self, address: u16, cycle: usize) -> Option<u8>;
-    fn ppu_write(&self, address: u16, value: u8, cycle: usize) -> Option<()>;
+    fn cpu_read(&self, address: u16, time: &Clock) -> Option<u8>;
+    fn cpu_write(&self, address: u16, value: u8, time: &Clock) -> Option<()>;
+    fn ppu_read(&self, address: u16, time: &Clock) -> Option<u8>;
+    fn ppu_write(&self, address: u16, value: u8, time: &Clock) -> Option<()>;
 }
 
 /**
@@ -311,7 +312,7 @@ impl Mapper0 {
 }
 
 impl Cartridge for Mapper0 {
-    fn cpu_read(&self, address: u16, _cycle: usize) -> Option<u8> {
+    fn cpu_read(&self, address: u16, _time: &Clock) -> Option<u8> {
         Some(match address {
             0x6000..=0x7fff => {
                 let address = (address as usize - 0x6000) % self.prg_ram.len();
@@ -325,7 +326,7 @@ impl Cartridge for Mapper0 {
         })
     }
 
-    fn cpu_write(&self, address: u16, value: u8, _cycle: usize) -> Option<()> {
+    fn cpu_write(&self, address: u16, value: u8, _time: &Clock) -> Option<()> {
         Some(match address {
             0x6000..=0x7fff => {
                 let address = (address as usize - 0x6000) % self.prg_ram.len();
@@ -336,8 +337,8 @@ impl Cartridge for Mapper0 {
         })
     }
 
-    fn ppu_read(&self, _address: u16, _cycle: usize) -> Option<u8> { Some(0) }
-    fn ppu_write(&self, _address: u16, _value: u8, _cycle: usize) -> Option<()> { Some(()) }
+    fn ppu_read(&self, _address: u16, _time: &Clock) -> Option<u8> { Some(0) }
+    fn ppu_write(&self, _address: u16, _value: u8, _time: &Clock) -> Option<()> { Some(()) }
 }
 
 #[cfg(test)]

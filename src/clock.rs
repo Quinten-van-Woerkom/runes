@@ -1,5 +1,5 @@
 /**
- * ppu.rs
+ * clock.rs
  * Part of Rust Nintendo Entertainment System emulator ("RuNES")
  * 
  * Copyright (c) 2021 Quinten van Woerkom
@@ -23,32 +23,36 @@
  * SOFTWARE.
  */
 
-/**
- * Any memory interface used with the NES pixel processing unit must implement
- * the following trait for interaction between the PPU and the "outside world".
- * 
- * Conceptually, it represents the PPU's pinout.
- */
-pub trait Pinout {
-    fn read(&self, address: u16, time: &Clock) -> Option<u8>;
-    fn write(&self, address: u16, data: u8, time: &Clock) -> Option<()>;
-    fn int(&self, time: &Clock) -> Option<()>; // Triggers an NMI
-    fn oam(&self, index: usize, time: &Clock) -> Option<(u8, u8, u8, u8)>;
-}
+use std::cell::Cell;
 
 /**
- * The NES' pixel processing unit is a Ricoh 2C02.
+ * Inter-device synchronization is achieved through separate clocks, each
+ * keeping track of the emulated number of (device-specific!) cycles that have
+ * elapsed at a moment in time.
  */
-struct RicohRP2C02 {
-    
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Clock {
+    cycle: Cell<usize>,
 }
 
-impl RicohRP2C02 {
-    fn read_register(&self, address: u16, time: &Clock) -> Option<u8> {
-        unimplemented!()
+impl Clock {
+    pub fn new() -> Self {
+        Self { cycle: Cell::new(0) }
     }
 
-    fn write_register(&self, address: u16, data: u8, time: &Clock) -> Option<()> {
-        unimplemented!()
+    pub fn from(cycle: usize) -> Self {
+        Self { cycle: Cell::from(cycle) }
+    }
+
+    pub fn advance(&self, cycles: usize) {
+        self.cycle.set(self.cycle.get() + cycles);
+    }
+
+    pub fn tick(&self) {
+        self.advance(1);
+    }
+
+    pub fn current(&self) -> usize {
+        self.cycle.get()
     }
 }

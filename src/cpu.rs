@@ -24,6 +24,7 @@
  */
 
 use crate::bitwise::{ Bitwise, Word };
+use crate::clock::Clock;
 use crate::yields::yields;
 
 use std::cell::Cell;
@@ -40,19 +41,19 @@ use std::cell::Cell;
  * to a significant amount when used for every read or write.
  */
 pub trait Pinout {
-    fn read(&self, address: u16, cycle: usize) -> Option<u8>;
-    fn write(&self, address: u16, data: u8, cycle: usize) -> Option<()>;
+    fn read(&self, address: u16, time: &Clock) -> Option<u8>;
+    fn write(&self, address: u16, data: u8, time: &Clock) -> Option<()>;
 
-    fn nmi(&self, cycle: usize) -> Option<bool>;
-    fn irq(&self, cycle: usize) -> Option<bool>;
-    fn reset(&self, cycle: usize) -> Option<bool>;
+    fn nmi(&self, time: &Clock) -> Option<bool>;
+    fn irq(&self, time: &Clock) -> Option<bool>;
+    fn reset(&self, time: &Clock) -> Option<bool>;
 }
 
 /**
  * Emulated internals of the Ricoh 2A03.
  */
 pub struct Ricoh2A03 {
-    cycle: Cell<usize>,
+    time: Clock,
     status: Status,
     program_counter: Cell<u16>,
     stack_pointer: Cell<u8>,
@@ -66,7 +67,7 @@ pub struct Ricoh2A03 {
 impl Ricoh2A03 {
     pub fn new() -> Self {
         Self {
-            cycle: 7.into(), // Start-up takes 7 cycles
+            time: Clock::from(7), // Start-up takes 7 cycles
             status: Status::new(),
             program_counter: 0xc000.into(),
             stack_pointer: 0xfd.into(),
@@ -86,7 +87,7 @@ impl Ricoh2A03 {
     pub fn from_nintendulator(log: &str) -> Self {
         let mut state = log.split_whitespace();
         let program_counter = u16::from_str_radix(state.next().unwrap(), 16).unwrap().into();
-        let cycle = usize::from_str_radix(state.next_back().unwrap().strip_prefix("CYC:").unwrap(), 10).unwrap().into();
+        let time = Clock::from(usize::from_str_radix(state.next_back().unwrap().strip_prefix("CYC:").unwrap(), 10).unwrap());
 
         let mut skip = state.next().unwrap().strip_prefix("A:");
         while skip.is_none() {
@@ -100,7 +101,7 @@ impl Ricoh2A03 {
         let stack_pointer = u8::from_str_radix(state.next().unwrap().strip_prefix("SP:").unwrap(), 16).unwrap().into();
 
         Self {
-            cycle,
+            time,
             status,
             program_counter,
             stack_pointer,
@@ -137,9 +138,9 @@ impl Ricoh2A03 {
             ($flag:ident, $value:expr) => {{
                 self.relative(pinout).await;
                 if self.status.$flag.get() == $value {
-                    self.tick();
+                    self.time.tick();
                     if self.address.get().high_byte() != self.program_counter.get().high_byte() {
-                        self.tick();
+                        self.time.tick();
                     }
                     self.program_counter.set(self.address.get());
                 }
@@ -151,7 +152,7 @@ impl Ricoh2A03 {
          */
         macro_rules! set {
             ($flag:ident, $value:expr) => {{
-                self.tick();
+                self.time.tick();
                 self.status.$flag.set($value);
             }}
         }
@@ -514,10 +515,10 @@ impl Ricoh2A03 {
      */
     async fn read(&self, pinout: &impl Pinout) -> u8 {
         loop {
-            match pinout.read(self.address.get(), self.cycle.get()) {
+            match pinout.read(self.address.get(), &self.time) {
                 None => yields().await,
                 Some(data) => {
-                    self.tick();
+                    self.time.tick();
                     return data;
                 },
             }
@@ -529,9 +530,9 @@ impl Ricoh2A03 {
      */
     async fn write(&self, pinout: &impl Pinout, data: u8) {
         loop {
-            match pinout.write(self.address.get(), data, self.cycle.get()) {
+            match pinout.write(self.address.get(), data, &self.time) {
                 None => yields().await,
-                Some(()) => return self.tick(),
+                Some(()) => return self.time.tick(),
             }
         }
     }
@@ -567,20 +568,13 @@ impl Ricoh2A03 {
     }
 
     /**
-     * Advances the cycle counter by one.
-     */
-    fn tick(&self) {
-        self.cycle.set(self.cycle.get() + 1);
-    }
-
-    /**
      * For some instructions, page boundary crossings incur an additional cycle
      * of overhead, because the page adjustment requires an extra operation.
      */
     fn adjust_page(&self, address: u16) {
         let page_crossing = address.high_byte() != self.address.get().high_byte();
         if page_crossing {
-            self.tick();
+            self.time.tick();
         }
     }
 
@@ -609,7 +603,7 @@ impl Ricoh2A03 {
      */
     async fn zeropage_x(&self, pinout: &impl Pinout) {
         self.address.set(self.fetch(pinout).await.wrapping_add(self.x.get()) as u16);
-        self.tick();
+        self.time.tick();
     }
 
     /**
@@ -621,7 +615,7 @@ impl Ricoh2A03 {
      */
     async fn zeropage_y(&self, pinout: &impl Pinout) {
         self.address.set(self.fetch(pinout).await.wrapping_add(self.y.get()) as u16);
-        self.tick();
+        self.time.tick();
     }
 
     /**
@@ -681,7 +675,7 @@ impl Ricoh2A03 {
     async fn absolute_x_write(&self, pinout: &impl Pinout) {
         self.absolute(pinout).await;
         self.address.set(self.address.get().wrapping_add(self.x.get() as u16));
-        self.tick();
+        self.time.tick();
     }
 
     /**
@@ -694,7 +688,7 @@ impl Ricoh2A03 {
     async fn absolute_y_write(&self, pinout: &impl Pinout) {
         self.absolute(pinout).await;
         self.address.set(self.address.get().wrapping_add(self.y.get() as u16));
-        self.tick();
+        self.time.tick();
     }
 
     /**
@@ -755,7 +749,7 @@ impl Ricoh2A03 {
         self.address.set(self.address.get().low_byte().wrapping_add(1) as u16);
         let high_byte = self.read(pinout).await;
         self.address.set(u16::from_bytes(low_byte, high_byte).wrapping_add(self.y.get() as u16));
-        self.tick();
+        self.time.tick();
     }
 
 
@@ -791,7 +785,7 @@ impl Ricoh2A03 {
         self.operand.set(self.operand.get() << 1);
         self.status.zero.set(self.operand.get() == 0);
         self.status.negative.set(self.operand.get().bit(7));
-        self.tick();
+        self.time.tick();
     }
 
     /**
@@ -840,14 +834,14 @@ impl Ricoh2A03 {
         self.operand.set(self.operand.get().wrapping_sub(1));
         self.status.zero.set(self.operand.get() == 0);
         self.status.negative.set(self.operand.get().bit(7));
-        self.tick();
+        self.time.tick();
     }
 
     /**
      * Decrement X register
      */
     fn dex(&self) {
-        self.tick();
+        self.time.tick();
         self.x.set(self.x.get().wrapping_sub(1));
         self.status.zero.set(self.x.get() == 0);
         self.status.negative.set(self.x.get().bit(7));
@@ -857,7 +851,7 @@ impl Ricoh2A03 {
      * Decrement Y register
      */
     fn dey(&self) {
-        self.tick();
+        self.time.tick();
         self.y.set(self.y.get().wrapping_sub(1));
         self.status.zero.set(self.y.get() == 0);
         self.status.negative.set(self.y.get().bit(7));
@@ -879,14 +873,14 @@ impl Ricoh2A03 {
         self.operand.set(self.operand.get().wrapping_add(1));
         self.status.zero.set(self.operand.get() == 0);
         self.status.negative.set(self.operand.get().bit(7));
-        self.tick();
+        self.time.tick();
     }
 
     /**
      * Increment X register
      */
     fn inx(&self) {
-        self.tick();
+        self.time.tick();
         self.x.set(self.x.get().wrapping_add(1));
         self.status.zero.set(self.x.get() == 0);
         self.status.negative.set(self.x.get().bit(7));
@@ -896,7 +890,7 @@ impl Ricoh2A03 {
      * Increment Y register
      */
     fn iny(&self) {
-        self.tick();
+        self.time.tick();
         self.y.set(self.y.get().wrapping_add(1));
         self.status.zero.set(self.y.get() == 0);
         self.status.negative.set(self.y.get().bit(7));
@@ -910,14 +904,14 @@ impl Ricoh2A03 {
         self.operand.set(self.operand.get() >> 1);
         self.status.zero.set(self.operand.get() == 0);
         self.status.negative.set(self.operand.get().bit(7));
-        self.tick();
+        self.time.tick();
     }
 
     /**
      * No operation
      */
     fn nop(&self) {
-        self.tick();
+        self.time.tick();
     }
 
     /**
@@ -938,7 +932,7 @@ impl Ricoh2A03 {
         self.status.zero.set(result == 0);
         self.status.negative.set(result.bit(7));
         self.operand.set(result);
-        self.tick();
+        self.time.tick();
     }
 
     /**
@@ -950,7 +944,7 @@ impl Ricoh2A03 {
         self.status.zero.set(result == 0);
         self.status.negative.set(result.bit(7));
         self.operand.set(result);
-        self.tick();
+        self.time.tick();
     }
 
     /**
@@ -1008,7 +1002,7 @@ impl Ricoh2A03 {
      * BRK - Force interrupt
      */
     async fn brk(&self, pinout: &impl Pinout) {
-        self.tick(); // Dummy read
+        self.time.tick(); // Dummy read
         self.push(pinout, self.program_counter.get().high_byte()).await;
         self.push(pinout, self.program_counter.get().low_byte()).await;
         self.push(pinout, self.status.instruction_value()).await;
@@ -1031,7 +1025,7 @@ impl Ricoh2A03 {
      */
     async fn jsr(&self, pinout: &impl Pinout) {
         let low_byte = self.fetch(pinout).await;
-        self.tick();
+        self.time.tick();
         self.push(pinout, self.program_counter.get().high_byte()).await;
         self.push(pinout, self.program_counter.get().low_byte()).await;
         let high_byte = self.fetch(pinout).await;
@@ -1042,7 +1036,7 @@ impl Ricoh2A03 {
      * PHA - Push accumulator
      */
     async fn pha(&self, pinout: &impl Pinout) {
-        self.tick();
+        self.time.tick();
         self.push(pinout, self.a.get()).await;
     }
 
@@ -1050,7 +1044,7 @@ impl Ricoh2A03 {
      * PHP - Push processor status
      */
     async fn php(&self, pinout: &impl Pinout) {
-        self.tick();
+        self.time.tick();
         self.push(pinout, self.status.instruction_value()).await;
     }
 
@@ -1058,8 +1052,8 @@ impl Ricoh2A03 {
      * PLA - Pull accumulator
      */
     async fn pla(&self, pinout: &impl Pinout) {
-        self.tick();
-        self.tick();
+        self.time.tick();
+        self.time.tick();
         self.a.set(self.pull(pinout).await);
         self.status.zero.set(self.a.get() == 0);
         self.status.negative.set(self.a.get().bit(7));
@@ -1069,8 +1063,8 @@ impl Ricoh2A03 {
      * PLP - Pull processor status
      */
     async fn plp(&self, pinout: &impl Pinout) {
-        self.tick();
-        self.tick();
+        self.time.tick();
+        self.time.tick();
         self.status.set(self.pull(pinout).await.into());
     }
 
@@ -1078,8 +1072,8 @@ impl Ricoh2A03 {
      * RTI - Return from interrupt
      */
     async fn rti(&self, pinout: &impl Pinout) {
-        self.tick(); // Dummy read
-        self.tick(); // Pre-increment stack pointer
+        self.time.tick(); // Dummy read
+        self.time.tick(); // Pre-increment stack pointer
         self.status.set(self.pull(pinout).await.into());
         self.program_counter.set(u16::from_bytes(
             self.pull(pinout).await,
@@ -1091,20 +1085,20 @@ impl Ricoh2A03 {
      * RTS - Return from subroutine
      */
     async fn rts(&self, pinout: &impl Pinout) {
-        self.tick(); // Dummy read
-        self.tick(); // Pre-increment stack pointer
+        self.time.tick(); // Dummy read
+        self.time.tick(); // Pre-increment stack pointer
         self.program_counter.set(u16::from_bytes(
             self.pull(pinout).await,
             self.pull(pinout).await
         ).wrapping_add(1));
-        self.tick();
+        self.time.tick();
     }
 
     /**
      * Transfer accumulator to X register
      */
     fn tax(&self) {
-        self.tick(); // Dummy read
+        self.time.tick(); // Dummy read
         self.x.set(self.a.get());
         self.status.zero.set(self.x.get() == 0);
         self.status.negative.set(self.x.get().bit(7));
@@ -1114,7 +1108,7 @@ impl Ricoh2A03 {
      * Transfer accumulator to Y register
      */
     fn tay(&self) {
-        self.tick(); // Dummy read
+        self.time.tick(); // Dummy read
         self.y.set(self.a.get());
         self.status.zero.set(self.y.get() == 0);
         self.status.negative.set(self.y.get().bit(7));
@@ -1124,7 +1118,7 @@ impl Ricoh2A03 {
      * Transfer stack pointer to X register
      */
     fn tsx(&self) {
-        self.tick(); // Dummy read
+        self.time.tick(); // Dummy read
         self.x.set(self.stack_pointer.get());
         self.status.zero.set(self.x.get() == 0);
         self.status.negative.set(self.x.get().bit(7));
@@ -1134,7 +1128,7 @@ impl Ricoh2A03 {
      * Transfer X register to accumulator
      */
     fn txa(&self) {
-        self.tick(); // Dummy read
+        self.time.tick(); // Dummy read
         self.a.set(self.x.get());
         self.status.zero.set(self.a.get() == 0);
         self.status.negative.set(self.a.get().bit(7));
@@ -1144,7 +1138,7 @@ impl Ricoh2A03 {
      * Transfer X register to stack pointer
      */
     fn txs(&self) {
-        self.tick(); // Dummy read
+        self.time.tick(); // Dummy read
         self.stack_pointer.set(self.x.get());
     }
 
@@ -1152,7 +1146,7 @@ impl Ricoh2A03 {
      * Transfer Y register to accumulator
      */
     fn tya(&self) {
-        self.tick(); // Dummy read
+        self.time.tick(); // Dummy read
         self.a.set(self.y.get());
         self.status.zero.set(self.a.get() == 0);
         self.status.negative.set(self.a.get().bit(7));
@@ -1260,7 +1254,7 @@ impl std::fmt::Debug for Ricoh2A03 {
             self.y.get(),
             self.status,
             self.stack_pointer.get(),
-            self.cycle.get()
+            self.time.current()
         )?;
         Ok(())
     }
@@ -1274,7 +1268,7 @@ impl std::fmt::Debug for Ricoh2A03 {
 #[cfg(test)]
 impl PartialEq for Ricoh2A03 {
     fn eq(&self, rhs: &Self) -> bool {
-        self.cycle == rhs.cycle
+        self.time == rhs.time
         && self.status == rhs.status
         && self.program_counter == rhs.program_counter
         && self.stack_pointer == rhs.stack_pointer
@@ -1294,7 +1288,7 @@ impl Eq for Ricoh2A03 {}
 impl Clone for Ricoh2A03 {
     fn clone(&self) -> Self {
         Self {
-            cycle: self.cycle.clone(),
+            time: self.time.clone(),
             status: self.status.clone(),
             program_counter: self.program_counter.clone(),
             stack_pointer: self.stack_pointer.clone(),
@@ -1492,18 +1486,18 @@ mod instruction_set {
     }
 
     impl Pinout for DummyBus {
-        fn read(&self, address: u16, _cycle: usize) -> Option<u8> {
+        fn read(&self, address: u16, _time: &Clock) -> Option<u8> {
             Some(self.data[address as usize % 0x100].get())
         }
 
-        fn write(&self, address: u16, data: u8, _cycle: usize) -> Option<()> {
+        fn write(&self, address: u16, data: u8, _time: &Clock) -> Option<()> {
             self.data[address as usize % 0x100].set(data);
             Some(())
         }
 
-        fn nmi(&self, _cycle: usize) -> Option<bool> { Some(false) }
-        fn irq(&self, _cycle: usize) -> Option<bool> { Some(false) }
-        fn reset(&self, _cycle: usize) -> Option<bool> { Some(false) }
+        fn nmi(&self, _time: &Clock) -> Option<bool> { Some(false) }
+        fn irq(&self, _time: &Clock) -> Option<bool> { Some(false) }
+        fn reset(&self, _time: &Clock) -> Option<bool> { Some(false) }
     }
 
     #[test]
@@ -1517,11 +1511,11 @@ mod instruction_set {
                 cpu.x.set(0);
                 cpu.y.set(0);
 
-                let start = cpu.cycle.get();
+                let start = cpu.time.current();
                 futures::executor::block_on(cpu.execute(&bus, $opcode));
 
                 // Add one cycle to compensate for missing opcode read
-                let cycles = cpu.cycle.get() + 1 - start;
+                let cycles = cpu.time.current() + 1 - start;
                 assert_eq!(
                     cycles, $cycles,
                     "Incorrect number of cycles for {} {}: \
@@ -1909,7 +1903,7 @@ mod instruction_set {
     fn jump() {
         let bus = {
             let bus = DummyBus::new();
-            bus.write(0xc000, 0xff, 0);
+            bus.write(0xc000, 0xff, &Clock::new());
             bus
         };
         let cpu = Ricoh2A03::new();

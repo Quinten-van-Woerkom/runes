@@ -24,6 +24,7 @@
  */
 
 use crate::cartridge::{ Cartridge, load_cartridge };
+use crate::clock::Clock;
 use crate::cpu;
 use std::cell::Cell;
 
@@ -67,19 +68,19 @@ impl Bus {
  * For each CPU memory access, the memory's "copy" of the CPU clock is updated.
  */
 impl cpu::Pinout for Bus {
-    fn read(&self, address: u16, cycle: usize) -> Option<u8> {
+    fn read(&self, address: u16, time: &Clock) -> Option<u8> {
         match address {
             0x0000..=0x1fff => Some(self.ram[address as usize % 0x0800].get()),
-            0x4020..=0xffff => self.cartridge.cpu_read(address, cycle),
+            0x4020..=0xffff => self.cartridge.cpu_read(address, time),
             // TODO: For now, returns 0
             _ => Some(0)
         }
     }
 
-    fn write(&self, address: u16, data: u8, cycle: usize) -> Option<()> {
+    fn write(&self, address: u16, data: u8, time: &Clock) -> Option<()> {
         match address {
             0x0000..=0x1fff => Some(self.ram[address as usize % 0x0800].set(data)),
-            0x4020..=0xffff => self.cartridge.cpu_write(address, data, cycle),
+            0x4020..=0xffff => self.cartridge.cpu_write(address, data, time),
             // TODO: For now, no-op
             _ => Some(())
         }
@@ -89,7 +90,7 @@ impl cpu::Pinout for Bus {
      * Not yet emulated. For now, updates the clock and acts as if no interrupt
      * was raised.
      */
-    fn nmi(&self, cycle: usize) -> Option<bool> {
+    fn nmi(&self, time: &Clock) -> Option<bool> {
         Some(false)
     }
 
@@ -97,7 +98,7 @@ impl cpu::Pinout for Bus {
      * Not yet emulated. For now, updates the clock and acts as if no interrupt
      * was raised.
      */
-    fn irq(&self, cycle: usize) -> Option<bool> {
+    fn irq(&self, time: &Clock) -> Option<bool> {
         Some(false)
     }
 
@@ -105,7 +106,7 @@ impl cpu::Pinout for Bus {
      * Not yet emulated. For now, updates the clock and acts as if no interrupt
      * was raised.
      */
-    fn reset(&self, cycle: usize) -> Option<bool> {
+    fn reset(&self, time: &Clock) -> Option<bool> {
         Some(false)
     }
 }
@@ -160,8 +161,8 @@ mod access {
 
         {
             use crate::cpu::Pinout;
-            assert_eq!(bus.read(0x0002, 0), Some(0x00), "Nestest failed: byte at $02 not $00, documented opcodes wrong");
-            assert_eq!(bus.read(0x0003, 0), Some(0x00), "Nestest failed: byte at $03 not $00, illegal opcodes wrong");
+            assert_eq!(bus.read(0x0002, &Clock::new()), Some(0x00), "Nestest failed: byte at $02 not $00, documented opcodes wrong");
+            assert_eq!(bus.read(0x0003, &Clock::new()), Some(0x00), "Nestest failed: byte at $03 not $00, illegal opcodes wrong");
         }
     }
 }
