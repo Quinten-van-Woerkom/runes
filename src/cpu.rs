@@ -26,6 +26,8 @@
 use crate::bitwise::{ Bitwise, Word };
 use crate::yields::yields;
 
+use std::cell::Cell;
+
 /**
  * Any address bus used with the Ricoh 2A03 must implement this trait to allow
  * for interoperability. Corresponds with the CPU pinout, conceptually.
@@ -50,29 +52,29 @@ pub trait Pinout {
  * Emulated internals of the Ricoh 2A03.
  */
 pub struct Ricoh2A03 {
-    cycle: usize,
+    cycle: Cell<usize>,
     status: Status,
-    program_counter: u16,
-    stack_pointer: u8,
-    a: u8,
-    x: u8,
-    y: u8,
-    operand: u8, // Data bus register, combination of SB/DB
-    address: u16, // Address bus register, combination of ADL/ADH/ABL/ABH
+    program_counter: Cell<u16>,
+    stack_pointer: Cell<u8>,
+    a: Cell<u8>,
+    x: Cell<u8>,
+    y: Cell<u8>,
+    operand: Cell<u8>, // Data bus register, combination of SB/DB
+    address: Cell<u16>, // Address bus register, combination of ADL/ADH/ABL/ABH
 }
 
 impl Ricoh2A03 {
     pub fn new() -> Self {
         Self {
-            cycle: 7, // Start-up takes 7 cycles
+            cycle: 7.into(), // Start-up takes 7 cycles
             status: Status::new(),
-            program_counter: 0xc000,
-            stack_pointer: 0xfd,
-            a: 0x00,
-            x: 0x00,
-            y: 0x00,
-            operand: 0x00,
-            address: 0x0000,
+            program_counter: 0xc000.into(),
+            stack_pointer: 0xfd.into(),
+            a: 0x00.into(),
+            x: 0x00.into(),
+            y: 0x00.into(),
+            operand: 0x00.into(),
+            address: 0x0000.into(),
         }
     }
 
@@ -83,48 +85,48 @@ impl Ricoh2A03 {
     #[cfg(test)]
     pub fn from_nintendulator(log: &str) -> Self {
         let mut state = log.split_whitespace();
-        let program_counter = u16::from_str_radix(state.next().unwrap(), 16).unwrap();
-        let cycle = usize::from_str_radix(state.next_back().unwrap().strip_prefix("CYC:").unwrap(), 10).unwrap();
+        let program_counter = u16::from_str_radix(state.next().unwrap(), 16).unwrap().into();
+        let cycle = usize::from_str_radix(state.next_back().unwrap().strip_prefix("CYC:").unwrap(), 10).unwrap().into();
 
         let mut skip = state.next().unwrap().strip_prefix("A:");
         while skip.is_none() {
             skip = state.next().unwrap().strip_prefix("A:");
         }
 
-        let a = u8::from_str_radix(skip.unwrap(), 16).unwrap();
-        let x = u8::from_str_radix(state.next().unwrap().strip_prefix("X:").unwrap(), 16).unwrap();
-        let y = u8::from_str_radix(state.next().unwrap().strip_prefix("Y:").unwrap(), 16).unwrap();
-        let status = u8::from_str_radix(state.next().unwrap().strip_prefix("P:").unwrap(), 16).unwrap();
-        let stack_pointer = u8::from_str_radix(state.next().unwrap().strip_prefix("SP:").unwrap(), 16).unwrap();
+        let a = u8::from_str_radix(skip.unwrap(), 16).unwrap().into();
+        let x = u8::from_str_radix(state.next().unwrap().strip_prefix("X:").unwrap(), 16).unwrap().into();
+        let y = u8::from_str_radix(state.next().unwrap().strip_prefix("Y:").unwrap(), 16).unwrap().into();
+        let status = u8::from_str_radix(state.next().unwrap().strip_prefix("P:").unwrap(), 16).unwrap().into();
+        let stack_pointer = u8::from_str_radix(state.next().unwrap().strip_prefix("SP:").unwrap(), 16).unwrap().into();
 
         Self {
             cycle,
-            status: status.into(),
+            status,
             program_counter,
             stack_pointer,
             a,
             x,
             y,
-            operand: 0x00,
-            address: 0x0000,
+            operand: 0x00.into(),
+            address: 0x0000.into(),
         }
     }
 
-    pub async fn run(&mut self, pinout: &impl Pinout) {
+    pub async fn run(&self, pinout: &impl Pinout) {
         loop {
             self.step(pinout).await;
         }
     }
 
     pub fn cycle(&self) -> usize {
-        self.cycle
+        self.cycle.get()
     }
 
-    fn tick(&mut self) {
-        self.cycle += 1;
+    fn tick(&self) {
+        self.cycle.set(self.cycle.get() + 1);
     }
 
-    pub async fn step(&mut self, pinout: &impl Pinout) {
+    pub async fn step(&self, pinout: &impl Pinout) {
         let opcode = self.fetch(pinout).await;
         self.execute(pinout, opcode).await;
     }
@@ -134,7 +136,7 @@ impl Ricoh2A03 {
      * Implemented as a combination of macros for the addressing modes and
      * operation types.
      */
-    async fn execute(&mut self, pinout: &impl Pinout, opcode: u8) {
+    async fn execute(&self, pinout: &impl Pinout, opcode: u8) {
         /**
          * All branch instructions follow a similar pattern, so we use a macro
          * to generate them.
@@ -142,12 +144,12 @@ impl Ricoh2A03 {
         macro_rules! branch {
             ($flag:ident, $value:expr) => {{
                 self.relative(pinout).await;
-                if self.status.$flag == $value {
+                if self.status.$flag.get() == $value {
                     self.tick();
-                    if self.address.high_byte() != self.program_counter.high_byte() {
+                    if self.address.get().high_byte() != self.program_counter.get().high_byte() {
                         self.tick();
                     }
-                    self.program_counter = self.address;
+                    self.program_counter.set(self.address.get());
                 }
             }};
         }
@@ -158,7 +160,7 @@ impl Ricoh2A03 {
         macro_rules! set {
             ($flag:ident, $value:expr) => {{
                 self.tick();
-                self.status.$flag = $value;
+                self.status.$flag.set($value);
             }}
         }
 
@@ -194,7 +196,7 @@ impl Ricoh2A03 {
         macro_rules! read {
             ($instruction:ident, $addressing:ident) => {{
                 self.$addressing(pinout).await;
-                self.operand = self.read(pinout).await;
+                self.operand.set(self.read(pinout).await);
                 self.$instruction();
             }};
         }
@@ -206,16 +208,16 @@ impl Ricoh2A03 {
          */
         macro_rules! modify {
             ($instruction:ident, accumulator) => {{
-                self.operand = self.a;
+                self.operand.set(self.a.get());
                 self.$instruction();
-                self.a = self.operand;
+                self.a.set(self.operand.get());
             }};
 
             ($instruction:ident, $addressing:ident) => {{
                 self.$addressing(pinout).await;
-                self.operand = self.read(pinout).await;
+                self.operand.set(self.read(pinout).await);
                 self.$instruction();
-                self.write(pinout, self.operand).await;
+                self.write(pinout, self.operand.get()).await;
             }};
         }
 
@@ -229,10 +231,10 @@ impl Ricoh2A03 {
         macro_rules! combine {
             ($modify:ident, $read:ident, $addressing:ident) => {{
                 self.$addressing(pinout).await;
-                self.operand = self.read(pinout).await;
+                self.operand.set(self.read(pinout).await);
                 self.$modify();
                 self.$read();
-                self.write(pinout, self.operand).await;
+                self.write(pinout, self.operand.get()).await;
             }}
         }
 
@@ -518,9 +520,9 @@ impl Ricoh2A03 {
     /**
      * Reads from the bus, taking one cycle.
      */
-    async fn read(&mut self, pinout: &impl Pinout) -> u8 {
+    async fn read(&self, pinout: &impl Pinout) -> u8 {
         loop {
-            match pinout.read(self.address, self.cycle) {
+            match pinout.read(self.address.get(), self.cycle.get()) {
                 None => yields().await,
                 Some(data) => {
                     self.tick();
@@ -533,9 +535,9 @@ impl Ricoh2A03 {
     /**
      * Writes to the bus, taking one cycle.
      */
-    async fn write(&mut self, pinout: &impl Pinout, data: u8) {
+    async fn write(&self, pinout: &impl Pinout, data: u8) {
         loop {
-            match pinout.write(self.address, data, self.cycle) {
+            match pinout.write(self.address.get(), data, self.cycle.get()) {
                 None => yields().await,
                 Some(()) => return self.tick(),
             }
@@ -545,10 +547,10 @@ impl Ricoh2A03 {
     /**
      * Pushes a value onto the stack. Takes one cycle.
      */
-    async fn push(&mut self, pinout: &impl Pinout, data: u8) {
-        self.address = 0x0100 | self.stack_pointer as u16;
+    async fn push(&self, pinout: &impl Pinout, data: u8) {
+        self.address.set(0x0100 | self.stack_pointer.get() as u16);
         self.write(pinout, data).await;
-        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
+        self.stack_pointer.set(self.stack_pointer.get().wrapping_sub(1));
     }
 
     /**
@@ -556,9 +558,9 @@ impl Ricoh2A03 {
      * operation was also a pull. As such, the second cycle must be added
      * manually.
      */
-    async fn pull(&mut self, pinout: &impl Pinout) -> u8 {
-        self.stack_pointer = self.stack_pointer.wrapping_add(1);
-        self.address = 0x0100 | self.stack_pointer as u16;
+    async fn pull(&self, pinout: &impl Pinout) -> u8 {
+        self.stack_pointer.set(self.stack_pointer.get().wrapping_add(1));
+        self.address.set(0x0100 | self.stack_pointer.get() as u16);
         self.read(pinout).await
     }
 
@@ -566,9 +568,9 @@ impl Ricoh2A03 {
      * Reads a byte from the location of the program counter, and increments
      * the program counter afterwards. Takes one cycle, because of the read.
      */
-    async fn fetch(&mut self, pinout: &impl Pinout) -> u8 {
-        self.address = self.program_counter;
-        self.program_counter = self.program_counter.wrapping_add(1);
+    async fn fetch(&self, pinout: &impl Pinout) -> u8 {
+        self.address.set(self.program_counter.get());
+        self.program_counter.set(self.program_counter.get().wrapping_add(1));
         self.read(pinout).await
     }
 
@@ -576,16 +578,16 @@ impl Ricoh2A03 {
     /**
      * Immediate addressing operates straight on the operand.
      */
-    async fn immediate(&mut self, _pinout: &impl Pinout) {
-        self.address = self.program_counter;
-        self.program_counter = self.program_counter.wrapping_add(1);
+    async fn immediate(&self, _pinout: &impl Pinout) {
+        self.address.set(self.program_counter.get());
+        self.program_counter.set(self.program_counter.get().wrapping_add(1));
     }
 
     /**
      * Zeropage addressing interprets the operand as the effective address.
      */
-    async fn zeropage(&mut self, pinout: &impl Pinout) {
-        self.address = self.fetch(pinout).await as u16;
+    async fn zeropage(&self, pinout: &impl Pinout) {
+        self.address.set(self.fetch(pinout).await as u16);
     }
 
     /**
@@ -595,8 +597,8 @@ impl Ricoh2A03 {
      * Note: the high byte is always zero, page boundary crossings wrap
      * around instead.
      */
-    async fn zeropage_x(&mut self, pinout: &impl Pinout) {
-        self.address = self.fetch(pinout).await.wrapping_add(self.x) as u16;
+    async fn zeropage_x(&self, pinout: &impl Pinout) {
+        self.address.set(self.fetch(pinout).await.wrapping_add(self.x.get()) as u16);
         self.tick();
     }
 
@@ -607,8 +609,8 @@ impl Ricoh2A03 {
      * Note: the high byte is always zero, page boundary crossings wrap
      * around instead.
      */
-    async fn zeropage_y(&mut self, pinout: &impl Pinout) {
-        self.address = self.fetch(pinout).await.wrapping_add(self.y) as u16;
+    async fn zeropage_y(&self, pinout: &impl Pinout) {
+        self.address.set(self.fetch(pinout).await.wrapping_add(self.y.get()) as u16);
         self.tick();
     }
 
@@ -616,19 +618,19 @@ impl Ricoh2A03 {
      * Relative addressing loads the program counter, offset by a given
      * amount.
      */
-    async fn relative(&mut self, pinout: &impl Pinout) {
+    async fn relative(&self, pinout: &impl Pinout) {
         let offset = self.fetch(pinout).await as i8;
-        self.address = self.program_counter.wrapping_add(offset as u16);
+        self.address.set(self.program_counter.get().wrapping_add(offset as u16));
     }
 
     /**
      * Absolute addressing loads the two bytes after the opcode into a
      * 16-bit word that it uses as effective address.
      */
-    async fn absolute(&mut self, pinout: &impl Pinout) {
+    async fn absolute(&self, pinout: &impl Pinout) {
         let low_byte = self.fetch(pinout).await;
         let high_byte = self.fetch(pinout).await;
-        self.address = u16::from_bytes(low_byte, high_byte);
+        self.address.set(u16::from_bytes(low_byte, high_byte));
     }
 
     /**
@@ -638,14 +640,14 @@ impl Ricoh2A03 {
      * Read instructions using the absolute X addressing mode take an extra
      * cycle if the address increment crosses a page.
      */
-    async fn absolute_x_read(&mut self, pinout: &impl Pinout) {
+    async fn absolute_x_read(&self, pinout: &impl Pinout) {
         self.absolute(pinout).await;
-        let address = self.address.wrapping_add(self.x as u16);
-        let page_crossing = address.high_byte() != self.address.high_byte();
+        let address = self.address.get().wrapping_add(self.x.get() as u16);
+        let page_crossing = address.high_byte() != self.address.get().high_byte();
         if page_crossing {
             self.tick();
         }
-        self.address = address;
+        self.address.set(address);
     }
 
     /**
@@ -655,14 +657,14 @@ impl Ricoh2A03 {
      * Read instructions using the absolute Y addressing mode take an extra
      * cycle if the address increment crosses a page.
      */
-    async fn absolute_y_read(&mut self, pinout: &impl Pinout) {
+    async fn absolute_y_read(&self, pinout: &impl Pinout) {
         self.absolute(pinout).await;
-        let address = self.address.wrapping_add(self.y as u16);
-        let page_crossing = address.high_byte() != self.address.high_byte();
+        let address = self.address.get().wrapping_add(self.y.get() as u16);
+        let page_crossing = address.high_byte() != self.address.get().high_byte();
         if page_crossing {
             self.tick();
         }
-        self.address = address;
+        self.address.set(address);
     }
 
     /**
@@ -672,9 +674,9 @@ impl Ricoh2A03 {
      * Read instructions using the absolute X addressing mode take an extra
      * cycle if the address increment crosses  apge.
      */
-    async fn absolute_x_write(&mut self, pinout: &impl Pinout) {
+    async fn absolute_x_write(&self, pinout: &impl Pinout) {
         self.absolute(pinout).await;
-        self.address = self.address.wrapping_add(self.x as u16);
+        self.address.set(self.address.get().wrapping_add(self.x.get() as u16));
         self.tick();
     }
 
@@ -685,9 +687,9 @@ impl Ricoh2A03 {
      * Write instructions using the absolute Y addressing mode always take an
      * extra cycle.
      */
-    async fn absolute_y_write(&mut self, pinout: &impl Pinout) {
+    async fn absolute_y_write(&self, pinout: &impl Pinout) {
         self.absolute(pinout).await;
-        self.address = self.address.wrapping_add(self.y as u16);
+        self.address.set(self.address.get().wrapping_add(self.y.get() as u16));
         self.tick();
     }
 
@@ -698,28 +700,28 @@ impl Ricoh2A03 {
      * correctly cross that page boundary, e.g. $00ff reads from ($00ff, $0000)
      * instead of ($00ff, $0100).
      */
-    async fn indirect(&mut self, pinout: &impl Pinout) {
+    async fn indirect(&self, pinout: &impl Pinout) {
         self.absolute(pinout).await;
         let high_address = u16::from_bytes(
-            self.address.low_byte().wrapping_add(1),
-            self.address.high_byte()
+            self.address.get().low_byte().wrapping_add(1),
+            self.address.get().high_byte()
         );
         let low_byte = self.read(pinout).await;
-        self.address = high_address;
+        self.address.set(high_address);
         let high_byte = self.read(pinout).await;
-        self.address = u16::from_bytes(low_byte, high_byte)
+        self.address.set(u16::from_bytes(low_byte, high_byte));
     }
 
     /**
      * Indexed indirect reads the 16-bit target address from the memory found
      * at a zero page X-indexed address.
      */
-    async fn indirect_x(&mut self, pinout: &impl Pinout) {
+    async fn indirect_x(&self, pinout: &impl Pinout) {
         self.zeropage_x(pinout).await;
         let low_byte = self.read(pinout).await;
-        self.address = self.address.low_byte().wrapping_add(1) as u16;
+        self.address.set(self.address.get().low_byte().wrapping_add(1) as u16);
         let high_byte = self.read(pinout).await;
-        self.address = u16::from_bytes(low_byte, high_byte)
+        self.address.set(u16::from_bytes(low_byte, high_byte));
     }
 
     /**
@@ -727,15 +729,15 @@ impl Ricoh2A03 {
      * location found using zero page indexing.
      * If a page boundary is crossed when adding Y, an extra cycle is used.
      */
-    async fn indirect_y_read(&mut self, pinout: &impl Pinout) {
+    async fn indirect_y_read(&self, pinout: &impl Pinout) {
         self.zeropage(pinout).await;
         let low_byte = self.read(pinout).await;
-        self.address = self.address.low_byte().wrapping_add(1) as u16;
+        self.address.set(self.address.get().low_byte().wrapping_add(1) as u16);
         let high_byte = self.read(pinout).await;
         let address = u16::from_bytes(low_byte, high_byte);
-        self.address = address.wrapping_add(self.y as u16);
+        self.address.set(address.wrapping_add(self.y.get() as u16));
 
-        let page_crossing = self.address.high_byte() != address.high_byte();
+        let page_crossing = self.address.get().high_byte() != address.high_byte();
         if page_crossing {
             self.tick();
         }
@@ -747,12 +749,12 @@ impl Ricoh2A03 {
      * Write instructions addressed using indirect Y always use an additional
      * cycle to correct for a page crossing when adding Y.
      */
-    async fn indirect_y_write(&mut self, pinout: &impl Pinout) {
+    async fn indirect_y_write(&self, pinout: &impl Pinout) {
         self.zeropage(pinout).await;
         let low_byte = self.read(pinout).await;
-        self.address = self.address.low_byte().wrapping_add(1) as u16;
+        self.address.set(self.address.get().low_byte().wrapping_add(1) as u16);
         let high_byte = self.read(pinout).await;
-        self.address = u16::from_bytes(low_byte, high_byte).wrapping_add(self.y as u16);
+        self.address.set(u16::from_bytes(low_byte, high_byte).wrapping_add(self.y.get() as u16));
         self.tick();
     }
 
@@ -761,191 +763,193 @@ impl Ricoh2A03 {
      * Logical AND of the accumulator with a byte of memory. The result is
      * stored in the accumulator.
      */
-    fn and(&mut self) {
-        self.a &= self.operand;
-        self.status.zero = self.a == 0;
-        self.status.negative = self.a.bit(7);
+    fn and(&self) {
+        self.a.set(self.a.get() & self.operand.get());
+        self.status.zero.set(self.a.get() == 0);
+        self.status.negative.set(self.a.get().bit(7));
     }
 
     /**
      * Add with carry.
      */
-    fn adc(&mut self) {
-        let result = self.a as u16 + self.operand as u16 + self.status.carry as u16;
-        self.status.carry = result > 0xff;
-        self.status.zero = result.low_byte() == 0;
-        self.status.overflow = (self.operand.bit(7) == self.a.bit(7)) && (self.operand.bit(7) != result.bit(7));
-        self.status.negative = result.bit(7);
-        self.a = result.low_byte();
+    fn adc(&self) {
+        let a = self.a.get();
+        let operand = self.operand.get();
+        let result = a as u16 + operand as u16 + self.status.carry.get() as u16;
+        self.status.carry.set(result > 0xff);
+        self.status.zero.set(result.low_byte() == 0);
+        self.status.overflow.set((operand.bit(7) == a.bit(7)) && (operand.bit(7) != result.bit(7)));
+        self.status.negative.set(result.bit(7));
+        self.a.set(result.low_byte());
     }
 
     /**
      * Arithmetic shift left.
      */
-    fn asl(&mut self) {
-        self.status.carry = self.operand.bit(7);
-        self.operand <<= 1;
-        self.status.zero = self.operand == 0;
-        self.status.negative = self.operand.bit(7);
+    fn asl(&self) {
+        self.status.carry.set(self.operand.get().bit(7));
+        self.operand.set(self.operand.get() << 1);
+        self.status.zero.set(self.operand.get() == 0);
+        self.status.negative.set(self.operand.get().bit(7));
         self.tick();
     }
 
     /**
      * Bit test
      */
-    fn bit(&mut self) {
-        self.status.zero = self.a & self.operand == 0;
-        self.status.overflow = self.operand.bit(6);
-        self.status.negative = self.operand.bit(7);
+    fn bit(&self) {
+        self.status.zero.set(self.a.get() & self.operand.get() == 0);
+        self.status.overflow.set(self.operand.get().bit(6));
+        self.status.negative.set(self.operand.get().bit(7));
     }
 
     /**
      * Compare accumulator with memory
      */
-    fn cmp(&mut self) {
-        let result = self.a.wrapping_sub(self.operand);
-        self.status.zero = result == 0;
-        self.status.carry = self.a >= self.operand;
-        self.status.negative = result.bit(7);
+    fn cmp(&self) {
+        let result = self.a.get().wrapping_sub(self.operand.get());
+        self.status.zero.set(result == 0);
+        self.status.carry.set(self.a.get() >= self.operand.get());
+        self.status.negative.set(result.bit(7));
     }
 
     /**
      * Compare X register with memory
      */
-    fn cpx(&mut self) {
-        let result = self.x.wrapping_sub(self.operand);
-        self.status.zero = result == 0;
-        self.status.carry = self.x >= self.operand;
-        self.status.negative = result.bit(7);
+    fn cpx(&self) {
+        let result = self.x.get().wrapping_sub(self.operand.get());
+        self.status.zero.set(result == 0);
+        self.status.carry.set(self.x.get() >= self.operand.get());
+        self.status.negative.set(result.bit(7));
     }
 
     /**
      * Compare Y register with memory
      */
-    fn cpy(&mut self) {
-        let result = self.y.wrapping_sub(self.operand);
-        self.status.zero = result == 0;
-        self.status.carry = self.y >= self.operand;
-        self.status.negative = result.bit(7);
+    fn cpy(&self) {
+        let result = self.y.get().wrapping_sub(self.operand.get());
+        self.status.zero.set(result == 0);
+        self.status.carry.set(self.y.get() >= self.operand.get());
+        self.status.negative.set(result.bit(7));
     }
 
     /**
      * Decrement memory
      */
-    fn dec(&mut self) {
-        self.operand = self.operand.wrapping_sub(1);
-        self.status.zero = self.operand == 0;
-        self.status.negative = self.operand.bit(7);
+    fn dec(&self) {
+        self.operand.set(self.operand.get().wrapping_sub(1));
+        self.status.zero.set(self.operand.get() == 0);
+        self.status.negative.set(self.operand.get().bit(7));
         self.tick();
     }
 
     /**
      * Decrement X register
      */
-    fn dex(&mut self) {
+    fn dex(&self) {
         self.tick();
-        self.x = self.x.wrapping_sub(1);
-        self.status.zero = self.x == 0;
-        self.status.negative = self.x.bit(7);
+        self.x.set(self.x.get().wrapping_sub(1));
+        self.status.zero.set(self.x.get() == 0);
+        self.status.negative.set(self.x.get().bit(7));
     }
 
     /**
      * Decrement Y register
      */
-    fn dey(&mut self) {
+    fn dey(&self) {
         self.tick();
-        self.y = self.y.wrapping_sub(1);
-        self.status.zero = self.y == 0;
-        self.status.negative = self.y.bit(7);
+        self.y.set(self.y.get().wrapping_sub(1));
+        self.status.zero.set(self.y.get() == 0);
+        self.status.negative.set(self.y.get().bit(7));
     }
 
     /**
      * Exclusive OR
      */
-    fn eor(&mut self) {
-        self.a ^= self.operand;
-        self.status.zero = self.a == 0;
-        self.status.negative = self.a.bit(7);
+    fn eor(&self) {
+        self.a.set(self.a.get() ^ self.operand.get());
+        self.status.zero.set(self.a.get() == 0);
+        self.status.negative.set(self.a.get().bit(7));
     }
 
     /**
      * Increment memory
      */
-    fn inc(&mut self) {
-        self.operand = self.operand.wrapping_add(1);
-        self.status.zero = self.operand == 0;
-        self.status.negative = self.operand.bit(7);
+    fn inc(&self) {
+        self.operand.set(self.operand.get().wrapping_add(1));
+        self.status.zero.set(self.operand.get() == 0);
+        self.status.negative.set(self.operand.get().bit(7));
         self.tick();
     }
 
     /**
      * Increment X register
      */
-    fn inx(&mut self) {
+    fn inx(&self) {
         self.tick();
-        self.x = self.x.wrapping_add(1);
-        self.status.zero = self.x == 0;
-        self.status.negative = self.x.bit(7);
+        self.x.set(self.x.get().wrapping_add(1));
+        self.status.zero.set(self.x.get() == 0);
+        self.status.negative.set(self.x.get().bit(7));
     }
 
     /**
      * Increment Y register
      */
-    fn iny(&mut self) {
+    fn iny(&self) {
         self.tick();
-        self.y = self.y.wrapping_add(1);
-        self.status.zero = self.y == 0;
-        self.status.negative = self.y.bit(7);
+        self.y.set(self.y.get().wrapping_add(1));
+        self.status.zero.set(self.y.get() == 0);
+        self.status.negative.set(self.y.get().bit(7));
     }
 
     /**
      * Logical shift right
      */
-    fn lsr(&mut self) {
-        self.status.carry = self.operand.bit(0);
-        self.operand >>= 1;
-        self.status.zero = self.operand == 0;
-        self.status.negative = self.operand.bit(7);
+    fn lsr(&self) {
+        self.status.carry.set(self.operand.get().bit(0));
+        self.operand.set(self.operand.get() >> 1);
+        self.status.zero.set(self.operand.get() == 0);
+        self.status.negative.set(self.operand.get().bit(7));
         self.tick();
     }
 
     /**
      * No operation
      */
-    fn nop(&mut self) {
+    fn nop(&self) {
         self.tick();
     }
 
     /**
      * Logical inclusive OR
      */
-    fn ora(&mut self) {
-        self.a |= self.operand;
-        self.status.zero = self.a == 0;
-        self.status.negative = self.a.bit(7);
+    fn ora(&self) {
+        self.a.set(self.a.get() | self.operand.get());
+        self.status.zero.set(self.a.get() == 0);
+        self.status.negative.set(self.a.get().bit(7));
     }
 
     /**
      * Rotate left
      */
-    fn rol(&mut self) {
-        let result = (self.operand << 1).change_bit(0, self.status.carry);
-        self.status.carry = self.operand.bit(7);
-        self.status.zero = result == 0;
-        self.status.negative = result.bit(7);
-        self.operand = result;
+    fn rol(&self) {
+        let result = (self.operand.get() << 1).change_bit(0, self.status.carry.get());
+        self.status.carry.set(self.operand.get().bit(7));
+        self.status.zero.set(result == 0);
+        self.status.negative.set(result.bit(7));
+        self.operand.set(result);
         self.tick();
     }
 
     /**
      * Rotate right
      */
-    fn ror(&mut self) {
-        let result = (self.operand >> 1).change_bit(7, self.status.carry);
-        self.status.carry = self.operand.bit(0);
-        self.status.zero = result == 0;
-        self.status.negative = result.bit(7);
-        self.operand = result;
+    fn ror(&self) {
+        let result = (self.operand.get() >> 1).change_bit(7, self.status.carry.get());
+        self.status.carry.set(self.operand.get().bit(0));
+        self.status.zero.set(result == 0);
+        self.status.negative.set(result.bit(7));
+        self.operand.set(result);
         self.tick();
     }
 
@@ -954,98 +958,98 @@ impl Ricoh2A03 {
      * Turns out that SBC(x) = ADC(!x), because of the nature of bitwise
      * addition and subtraction for two's complement numbers.
      */
-    fn sbc(&mut self) {
-        let result = self.a as u16 + !self.operand as u16 + self.status.carry as u16;
-        self.status.carry = result > 0xff;
-        self.status.zero = result.low_byte() == 0;
-        self.status.overflow = (!self.operand.bit(7) == self.a.bit(7)) && (!self.operand.bit(7) != result.bit(7));
-        self.status.negative = result.bit(7);
-        self.a = result.low_byte();
+    fn sbc(&self) {
+        let result = self.a.get() as u16 + !self.operand.get() as u16 + self.status.carry.get() as u16;
+        self.status.carry.set(result > 0xff);
+        self.status.zero.set(result.low_byte() == 0);
+        self.status.overflow.set((!self.operand.get().bit(7) == self.a.get().bit(7)) && (!self.operand.get().bit(7) != result.bit(7)));
+        self.status.negative.set(result.bit(7));
+        self.a.set(result.low_byte());
     }
 
     /**
      * LAX, similar to LDA followed by TAX
      */
-    fn lax(&mut self) {
-        self.a = self.operand;
-        self.x = self.operand;
-        self.status.zero = self.operand == 0;
-        self.status.negative = self.operand.bit(7);
+    fn lax(&self) {
+        self.a.set(self.operand.get());
+        self.x.set(self.operand.get());
+        self.status.zero.set(self.operand.get() == 0);
+        self.status.negative.set(self.operand.get().bit(7));
     }
 
     /**
      * Loads memory into the accumulator register
      */
-    fn lda(&mut self) {
-        self.a = self.operand;
-        self.status.zero = self.a == 0;
-        self.status.negative = self.a.bit(7);
+    fn lda(&self) {
+        self.a.set(self.operand.get());
+        self.status.zero.set(self.a.get() == 0);
+        self.status.negative.set(self.a.get().bit(7));
     }
 
     /**
      * Loads memory into the X register
      */
-    fn ldx(&mut self) {
-        self.x = self.operand;
-        self.status.zero = self.x == 0;
-        self.status.negative = self.x.bit(7);
+    fn ldx(&self) {
+        self.x.set(self.operand.get());
+        self.status.zero.set(self.x.get() == 0);
+        self.status.negative.set(self.x.get().bit(7));
     }
 
     /**
      * Loads memory into the Y register
      */
-    fn ldy(&mut self) {
-        self.y = self.operand;
-        self.status.zero = self.y == 0;
-        self.status.negative = self.y.bit(7);
+    fn ldy(&self) {
+        self.y.set(self.operand.get());
+        self.status.zero.set(self.y.get() == 0);
+        self.status.negative.set(self.y.get().bit(7));
     }
 
     /**
      * BRK - Force interrupt
      */
-    async fn brk(&mut self, pinout: &impl Pinout) {
+    async fn brk(&self, pinout: &impl Pinout) {
         self.tick(); // Dummy read
-        self.push(pinout, self.program_counter.high_byte()).await;
-        self.push(pinout, self.program_counter.low_byte()).await;
+        self.push(pinout, self.program_counter.get().high_byte()).await;
+        self.push(pinout, self.program_counter.get().low_byte()).await;
         self.push(pinout, self.status.instruction_value()).await;
-        self.address = 0xfffe;
-        self.program_counter = Word::from_bytes(
+        self.address.set(0xfffe);
+        self.program_counter.set(Word::from_bytes(
             self.fetch(pinout).await,
             self.read(pinout).await,
-        );
+        ));
     }
 
     /**
      * JMP - Jump
      */
-    fn jmp(&mut self) {
-        self.program_counter = self.address;
+    fn jmp(&self) {
+        self.program_counter.set(self.address.get());
     }
     
     /**
      * JSR - Jump to subroutine
      */
-    async fn jsr(&mut self, pinout: &impl Pinout) {
+    async fn jsr(&self, pinout: &impl Pinout) {
         let low_byte = self.fetch(pinout).await;
         self.tick();
-        self.push(pinout, self.program_counter.high_byte()).await;
-        self.push(pinout, self.program_counter.low_byte()).await;
+        self.push(pinout, self.program_counter.get().high_byte()).await;
+        self.push(pinout, self.program_counter.get().low_byte()).await;
         let high_byte = self.fetch(pinout).await;
-        self.program_counter = Word::from_bytes(low_byte, high_byte);
+        self.program_counter.set(Word::from_bytes(low_byte, high_byte));
     }
 
     /**
      * PHA - Push accumulator
      */
-    async fn pha(&mut self, pinout: &impl Pinout) {
+    async fn pha(&self, pinout: &impl Pinout) {
         self.tick();
-        self.push(pinout, self.a).await;
+        self.push(pinout, self.a.get()).await;
     }
 
     /**
      * PHP - Push processor status
      */
-    async fn php(&mut self, pinout: &impl Pinout) {
+    async fn php(&self, pinout: &impl Pinout) {
         self.tick();
         self.push(pinout, self.status.instruction_value()).await;
     }
@@ -1053,142 +1057,142 @@ impl Ricoh2A03 {
     /**
      * PLA - Pull accumulator
      */
-    async fn pla(&mut self, pinout: &impl Pinout) {
+    async fn pla(&self, pinout: &impl Pinout) {
         self.tick();
         self.tick();
-        self.a = self.pull(pinout).await;
-        self.status.zero = self.a == 0;
-        self.status.negative = self.a.bit(7);
+        self.a.set(self.pull(pinout).await);
+        self.status.zero.set(self.a.get() == 0);
+        self.status.negative.set(self.a.get().bit(7));
     }
 
     /**
      * PLP - Pull processor status
      */
-    async fn plp(&mut self, pinout: &impl Pinout) {
+    async fn plp(&self, pinout: &impl Pinout) {
         self.tick();
         self.tick();
-        self.status = self.pull(pinout).await.into();
+        self.status.set(self.pull(pinout).await.into());
     }
 
     /**
      * RTI - Return from interrupt
      */
-    async fn rti(&mut self, pinout: &impl Pinout) {
+    async fn rti(&self, pinout: &impl Pinout) {
         self.tick(); // Dummy read
         self.tick(); // Pre-increment stack pointer
-        self.status = self.pull(pinout).await.into();
-        self.program_counter = u16::from_bytes(
+        self.status.set(self.pull(pinout).await.into());
+        self.program_counter.set(u16::from_bytes(
             self.pull(pinout).await,
             self.pull(pinout).await
-        );
+        ));
     }
 
     /**
      * RTS - Return from subroutine
      */
-    async fn rts(&mut self, pinout: &impl Pinout) {
+    async fn rts(&self, pinout: &impl Pinout) {
         self.tick(); // Dummy read
         self.tick(); // Pre-increment stack pointer
-        self.program_counter = u16::from_bytes(
+        self.program_counter.set(u16::from_bytes(
             self.pull(pinout).await,
             self.pull(pinout).await
-        ).wrapping_add(1);
+        ).wrapping_add(1));
         self.tick();
     }
 
     /**
      * Transfer accumulator to X register
      */
-    fn tax(&mut self) {
+    fn tax(&self) {
         self.tick(); // Dummy read
-        self.x = self.a;
-        self.status.zero = self.x == 0;
-        self.status.negative = self.x.bit(7);
+        self.x.set(self.a.get());
+        self.status.zero.set(self.x.get() == 0);
+        self.status.negative.set(self.x.get().bit(7));
     }
 
     /**
      * Transfer accumulator to Y register
      */
-    fn tay(&mut self) {
+    fn tay(&self) {
         self.tick(); // Dummy read
-        self.y = self.a;
-        self.status.zero = self.y == 0;
-        self.status.negative = self.y.bit(7);
+        self.y.set(self.a.get());
+        self.status.zero.set(self.y.get() == 0);
+        self.status.negative.set(self.y.get().bit(7));
     }
 
     /**
      * Transfer stack pointer to X register
      */
-    fn tsx(&mut self) {
+    fn tsx(&self) {
         self.tick(); // Dummy read
-        self.x = self.stack_pointer;
-        self.status.zero = self.x == 0;
-        self.status.negative = self.x.bit(7);
+        self.x.set(self.stack_pointer.get());
+        self.status.zero.set(self.x.get() == 0);
+        self.status.negative.set(self.x.get().bit(7));
     }
 
     /**
      * Transfer X register to accumulator
      */
-    fn txa(&mut self) {
+    fn txa(&self) {
         self.tick(); // Dummy read
-        self.a = self.x;
-        self.status.zero = self.a == 0;
-        self.status.negative = self.a.bit(7);
+        self.a.set(self.x.get());
+        self.status.zero.set(self.a.get() == 0);
+        self.status.negative.set(self.a.get().bit(7));
     }
 
     /**
      * Transfer X register to stack pointer
      */
-    fn txs(&mut self) {
+    fn txs(&self) {
         self.tick(); // Dummy read
-        self.stack_pointer = self.x;
+        self.stack_pointer.set(self.x.get());
     }
 
     /**
      * Transfer Y register to accumulator
      */
-    fn tya(&mut self) {
+    fn tya(&self) {
         self.tick(); // Dummy read
-        self.a = self.y;
-        self.status.zero = self.a == 0;
-        self.status.negative = self.a.bit(7);
+        self.a.set(self.y.get());
+        self.status.zero.set(self.a.get() == 0);
+        self.status.negative.set(self.a.get().bit(7));
     }
 
     /**
      * Stores the accumulator in memory
      */
-    async fn sta(&mut self, pinout: &impl Pinout) {
-        self.write(pinout, self.a).await;
+    async fn sta(&self, pinout: &impl Pinout) {
+        self.write(pinout, self.a.get()).await;
     }
 
     /**
      * Stores the X register in memory
      */
-    async fn stx(&mut self, pinout: &impl Pinout) {
-        self.write(pinout, self.x).await;
+    async fn stx(&self, pinout: &impl Pinout) {
+        self.write(pinout, self.x.get()).await;
     }
 
     /**
      * Stores the Y register in memory
      */
-    async fn sty(&mut self, pinout: &impl Pinout) {
-        self.write(pinout, self.y).await;
+    async fn sty(&self, pinout: &impl Pinout) {
+        self.write(pinout, self.y.get()).await;
     }
 
     /**
      * Stores the bitwise AND of the X and accumulator register in memory
      */
-    async fn sax(&mut self, pinout: &impl Pinout) {
-        self.write(pinout, self.a & self.x).await;
+    async fn sax(&self, pinout: &impl Pinout) {
+        self.write(pinout, self.a.get() & self.x.get()).await;
     }
 
     /**
      * Immediate AND, followed by N being copied to C.
      * TODO: Implement tests to ensure correctness.
      */
-    fn anc(&mut self) {
+    fn anc(&self) {
         self.and();
-        self.status.carry = self.status.negative;
+        self.status.carry.set(self.status.negative.get());
     }
 
     /**
@@ -1197,12 +1201,12 @@ impl Ricoh2A03 {
      * timing problems, however.
      * TODO: Implement tests to ensure correctness.
      */
-    fn alr(&mut self) {
-        self.a &= self.operand;
-        self.status.carry = self.a.bit(0);
-        self.a >>= 1;
-        self.status.zero = self.a == 0;
-        self.status.negative = self.a.bit(7);
+    fn alr(&self) {
+        self.a.set(self.a.get() & self.operand.get());
+        self.status.carry.set(self.a.get().bit(0));
+        self.a.set(self.a.get() >> 1);
+        self.status.zero.set(self.a.get() == 0);
+        self.status.negative.set(self.a.get().bit(7));
     }
 
     /**
@@ -1212,13 +1216,13 @@ impl Ricoh2A03 {
      * - V is bit 6 xor bit 5 of the accumulator
      * TODO: Implement tests to ensure correctness.
      */
-    fn arr(&mut self) {
-        self.a &= self.operand;
-        self.a = (self.a >> 1).change_bit(7, self.status.carry);
-        self.status.zero = self.a == 0;
-        self.status.negative = self.a.bit(7);
-        self.status.carry = self.a.bit(6);
-        self.status.overflow = self.a.bit(6) ^ self.a.bit(5);
+    fn arr(&self) {
+        self.a.set(self.a.get() & self.operand.get());
+        self.a.set((self.a.get() >> 1).change_bit(7, self.status.carry.get()));
+        self.status.zero.set(self.a.get() == 0);
+        self.status.negative.set(self.a.get().bit(7));
+        self.status.carry.set(self.a.get().bit(6));
+        self.status.overflow.set(self.a.get().bit(6) ^ self.a.get().bit(5));
     }
 
     /**
@@ -1226,23 +1230,23 @@ impl Ricoh2A03 {
      * flags.
      * TODO: Implement tests to ensure correctness.
      */
-    fn axs(&mut self) {
-        let (result, carry) = (self.a & self.x).overflowing_sub(self.operand);
-        self.x = result;
-        self.status.negative = self.x.bit(7);
-        self.status.zero = self.x == 0;
-        self.status.carry = carry;
+    fn axs(&self) {
+        let (result, carry) = (self.a.get() & self.x.get()).overflowing_sub(self.operand.get());
+        self.x.set(result);
+        self.status.negative.set(self.x.get().bit(7));
+        self.status.zero.set(self.x.get() == 0);
+        self.status.carry.set(carry);
     }
 
     /**
      * TXA followed by immediate AND, but with one less cycle.
      * TODO: Implement tests to ensure correctness.
      */
-    fn xaa(&mut self) {
-        self.a = self.x;
-        self.a &= self.operand;
-        self.status.zero = self.a == 0;
-        self.status.negative = self.a.bit(7);
+    fn xaa(&self) {
+        self.a.set(self.x.get());
+        self.a.set(self.a.get() & self.operand.get());
+        self.status.zero.set(self.a.get() == 0);
+        self.status.negative.set(self.a.get().bit(7));
     }
 }
 
@@ -1250,13 +1254,13 @@ impl std::fmt::Debug for Ricoh2A03 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f,
             "\n${:04x}\tA:${:02x} X:${:02x} Y:${:02x} P:{:?} SP:${:02x} CYC:{}",
-            self.program_counter,
-            self.a,
-            self.x,
-            self.y,
+            self.program_counter.get(),
+            self.a.get(),
+            self.x.get(),
+            self.y.get(),
             self.status,
-            self.stack_pointer,
-            self.cycle
+            self.stack_pointer.get(),
+            self.cycle.get()
         )?;
         Ok(())
     }
@@ -1290,15 +1294,15 @@ impl Eq for Ricoh2A03 {}
 impl Clone for Ricoh2A03 {
     fn clone(&self) -> Self {
         Self {
-            cycle: self.cycle,
-            status: self.status,
-            program_counter: self.program_counter,
-            stack_pointer: self.stack_pointer,
-            a: self.a,
-            x: self.x,
-            y: self.y,
-            operand: self.operand,
-            address: self.address,
+            cycle: self.cycle.clone(),
+            status: self.status.clone(),
+            program_counter: self.program_counter.clone(),
+            stack_pointer: self.stack_pointer.clone(),
+            a: self.a.clone(),
+            x: self.x.clone(),
+            y: self.y.clone(),
+            operand: self.operand.clone(),
+            address: self.address.clone(),
         }
     }
 }
@@ -1314,28 +1318,37 @@ impl Clone for Ricoh2A03 {
  * required to set/clear them. Only when pushed/pulled, the bools are combined
  * the single byte that they really are.
  */
-#[cfg_attr(test, derive(Copy, Clone, PartialEq, Eq))]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 struct Status {
-    carry: bool,
-    zero: bool,
-    interrupt_disable: bool,
-    decimal_mode: bool,
+    carry: Cell<bool>,
+    zero: Cell<bool>,
+    interrupt_disable: Cell<bool>,
+    decimal_mode: Cell<bool>,
     // Phantom bit: break flag
     // Phantom bit: unused, always 1
-    overflow: bool,
-    negative: bool,
+    overflow: Cell<bool>,
+    negative: Cell<bool>,
 }
 
 impl Status {
     fn new() -> Self {
         Self {
-            carry: false,
-            zero: false,
-            interrupt_disable: true,
-            decimal_mode: false,
-            overflow: false,
-            negative: false,
+            carry: false.into(),
+            zero: false.into(),
+            interrupt_disable: true.into(),
+            decimal_mode: false.into(),
+            overflow: false.into(),
+            negative: false.into(),
         }
+    }
+
+    fn set(&self, byte: u8) {
+        self.carry.set(byte.bit(0));
+        self.zero.set(byte.bit(1));
+        self.interrupt_disable.set(byte.bit(2));
+        self.decimal_mode.set(byte.bit(3));
+        self.overflow.set(byte.bit(6));
+        self.negative.set(byte.bit(7));
     }
 
     /**
@@ -1355,12 +1368,12 @@ impl Status {
      * For an interrupt, the break flag, bit 4, is cleared.
      */
     fn interrupt_value(&self) -> u8 {
-        self.carry as u8 |
-        (self.zero as u8) << 1 |
-        (self.interrupt_disable as u8) << 2 |
-        (self.decimal_mode as u8) << 3 |
-        (self.overflow as u8) << 6 |
-        (self.negative as u8) << 7 |
+        self.carry.get() as u8 |
+        (self.zero.get() as u8) << 1 |
+        (self.interrupt_disable.get() as u8) << 2 |
+        (self.decimal_mode.get() as u8) << 3 |
+        (self.overflow.get() as u8) << 6 |
+        (self.negative.get() as u8) << 7 |
         0x20
     }
 }
@@ -1368,12 +1381,12 @@ impl Status {
 impl std::convert::From<u8> for Status {
     fn from(byte: u8) -> Self {
         Self {
-            carry: byte.bit(0),
-            zero:  byte.bit(1),
-            interrupt_disable: byte.bit(2),
-            decimal_mode: byte.bit(3),
-            overflow: byte.bit(6),
-            negative: byte.bit(7),
+            carry: byte.bit(0).into(),
+            zero:  byte.bit(1).into(),
+            interrupt_disable: byte.bit(2).into(),
+            decimal_mode: byte.bit(3).into(),
+            overflow: byte.bit(6).into(),
+            negative: byte.bit(7).into(),
         }
     }
 }
@@ -1381,13 +1394,13 @@ impl std::convert::From<u8> for Status {
 impl std::fmt::Debug for Status {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use std::fmt::Write;
-        f.write_char(if self.negative { 'N' } else { 'n' })?;
-        f.write_char(if self.overflow { 'V' } else { 'v' })?;
+        f.write_char(if self.negative.get() { 'N' } else { 'n' })?;
+        f.write_char(if self.overflow.get() { 'V' } else { 'v' })?;
         f.write_str("--")?;
-        f.write_char(if self.decimal_mode { 'D' } else { 'd' })?;
-        f.write_char(if self.interrupt_disable { 'I' } else { 'i' })?;
-        f.write_char(if self.zero { 'Z' } else { 'z' })?;
-        f.write_char(if self.carry { 'C' } else { 'c' })?;
+        f.write_char(if self.decimal_mode.get() { 'D' } else { 'd' })?;
+        f.write_char(if self.interrupt_disable.get() { 'I' } else { 'i' })?;
+        f.write_char(if self.zero.get() { 'Z' } else { 'z' })?;
+        f.write_char(if self.carry.get() { 'C' } else { 'c' })?;
         write!(f, " (${:02x})", self.interrupt_value())?;
         Ok(())
     }
@@ -1402,34 +1415,34 @@ mod status {
         let status = Status::new();
         assert_eq!(status.interrupt_value(), 0b00100100);
         assert_eq!(status.instruction_value(), 0b00110100);
-        assert_eq!(status.carry, false);
-        assert_eq!(status.zero, false);
-        assert_eq!(status.interrupt_disable, true);
-        assert_eq!(status.decimal_mode, false);
-        assert_eq!(status.overflow, false);
-        assert_eq!(status.negative, false);
+        assert_eq!(status.carry.get(), false);
+        assert_eq!(status.zero.get(), false);
+        assert_eq!(status.interrupt_disable.get(), true);
+        assert_eq!(status.decimal_mode.get(), false);
+        assert_eq!(status.overflow.get(), false);
+        assert_eq!(status.negative.get(), false);
         assert_eq!(format!("{:?}", status), "nv--dIzc ($24)");
     }
 
     #[test]
     fn assignment() {
-        let mut status = Status::new();
-        status.carry = true;
-        status.zero = true;
-        status.interrupt_disable = true;
-        status.decimal_mode = true;
-        status.overflow = true;
-        status.negative = true;
+        let status = Status::new();
+        status.carry.set(true);
+        status.zero.set(true);
+        status.interrupt_disable.set(true);
+        status.decimal_mode.set(true);
+        status.overflow.set(true);
+        status.negative.set(true);
         assert_eq!(status.interrupt_value(), 0b11101111);
         assert_eq!(status.instruction_value(), 0b11111111);
         assert_eq!(format!("{:?}", status), "NV--DIZC ($ef)");
 
-        status.carry = false;
-        status.zero = false;
-        status.interrupt_disable = false;
-        status.decimal_mode = false;
-        status.overflow = false;
-        status.negative = false;
+        status.carry.set(false);
+        status.zero.set(false);
+        status.interrupt_disable.set(false);
+        status.decimal_mode.set(false);
+        status.overflow.set(false);
+        status.negative.set(false);
         assert_eq!(format!("{:?}", status), "nv--dizc ($20)");
     }
 
@@ -1438,23 +1451,23 @@ mod status {
         let status: Status = 0b11111111.into();
         assert_eq!(status.interrupt_value(), 0b11101111);
         assert_eq!(status.instruction_value(), 0b11111111);
-        assert_eq!(status.carry, true);
-        assert_eq!(status.zero, true);
-        assert_eq!(status.interrupt_disable, true);
-        assert_eq!(status.decimal_mode, true);
-        assert_eq!(status.overflow, true);
-        assert_eq!(status.negative, true);
+        assert_eq!(status.carry.get(), true);
+        assert_eq!(status.zero.get(), true);
+        assert_eq!(status.interrupt_disable.get(), true);
+        assert_eq!(status.decimal_mode.get(), true);
+        assert_eq!(status.overflow.get(), true);
+        assert_eq!(status.negative.get(), true);
         assert_eq!(format!("{:?}", status), "NV--DIZC ($ef)");
 
         let status: Status = 0b00000000.into();
         assert_eq!(status.interrupt_value(), 0b00100000);
         assert_eq!(status.instruction_value(), 0b00110000);
-        assert_eq!(status.carry, false);
-        assert_eq!(status.zero, false);
-        assert_eq!(status.interrupt_disable, false);
-        assert_eq!(status.decimal_mode, false);
-        assert_eq!(status.overflow, false);
-        assert_eq!(status.negative, false);
+        assert_eq!(status.carry.get(), false);
+        assert_eq!(status.zero.get(), false);
+        assert_eq!(status.interrupt_disable.get(), false);
+        assert_eq!(status.decimal_mode.get(), false);
+        assert_eq!(status.overflow.get(), false);
+        assert_eq!(status.negative.get(), false);
         assert_eq!(format!("{:?}", status), "nv--dizc ($20)");
     }        
 }
@@ -1510,19 +1523,19 @@ mod instruction_set {
     #[test]
     fn cycles() {
         let bus = DummyMemory::new();
-        let mut cpu = Ricoh2A03::new();
+        let cpu = Ricoh2A03::new();
 
         macro_rules! check_cycles {
             ($opcode:expr, $cycles:expr, $instruction:expr, $addressing:expr) => {{
-                cpu.program_counter = 0xf0;
-                cpu.x = 0;
-                cpu.y = 0;
+                cpu.program_counter.set(0xf0);
+                cpu.x.set(0);
+                cpu.y.set(0);
 
-                let start = cpu.cycle;
+                let start = cpu.cycle.get();
                 futures::executor::block_on(cpu.execute(&bus, $opcode));
 
                 // Add one cycle to compensate for missing opcode read
-                let cycles = cpu.cycle + 1 - start;
+                let cycles = cpu.cycle.get() + 1 - start;
                 assert_eq!(
                     cycles, $cycles,
                     "Incorrect number of cycles for {} {}: \
@@ -1538,10 +1551,10 @@ mod instruction_set {
             // - Branch taken: nominal cycles plus one
             // - Branch taken to different page: nominal cycles plus two
             ($opcode:expr, $cycles:expr, $instruction:expr, $addressing:expr, $flag:ident, $value:expr) => {{
-                cpu.status.$flag = !($value);
+                cpu.status.$flag.set(!($value));
                 check_cycles!($opcode, $cycles, $instruction, $addressing);
 
-                cpu.status.$flag = $value;
+                cpu.status.$flag.set($value);
                 bus.data[0xf0].set(0x00);
                 check_cycles!($opcode, $cycles + 1, $instruction, $addressing);
 
@@ -1717,19 +1730,19 @@ mod instruction_set {
     #[test]
     fn bytes() {
         let bus = DummyMemory::new();
-        let mut cpu = Ricoh2A03::new();
+        let cpu = Ricoh2A03::new();
 
         macro_rules! check_bytes {
             ($opcode:expr, $bytes:expr, $instruction:expr, $addressing:expr) => {{
-                cpu.program_counter = 0xf0;
-                cpu.x = 0;
-                cpu.y = 0;
+                cpu.program_counter.set(0xf0);
+                cpu.x.set(0);
+                cpu.y.set(0);
 
-                let first_byte = cpu.program_counter;
+                let first_byte = cpu.program_counter.get();
                 futures::executor::block_on(cpu.execute(&bus, $opcode));
 
                 // Add one byte to compensate for missing opcode read
-                let bytes = cpu.program_counter + 1 - first_byte;
+                let bytes = cpu.program_counter.get() + 1 - first_byte;
                 assert_eq!(
                     bytes, $bytes,
                     "Incorrect number of bytes for {} {}: \
@@ -1743,7 +1756,7 @@ mod instruction_set {
             // when the branch is not taken, as the program counter is shifted
             // otherwise.
             ($opcode:expr, $bytes:expr, $instruction:expr, $addressing:expr, $flag:ident, $value:expr) => {{
-                cpu.status.$flag = !$value;
+                cpu.status.$flag.set(!$value);
                 check_bytes!($opcode, $bytes, $instruction, $addressing);
             }}
         }
@@ -1913,11 +1926,11 @@ mod instruction_set {
             bus.data[0xc000] = Cell::from(0xff);
             bus
         };
-        let mut cpu = Ricoh2A03::new();
-        cpu.program_counter = 0xc000;
+        let cpu = Ricoh2A03::new();
+        cpu.program_counter.set(0xc000);
 
         futures::executor::block_on(cpu.execute(&bus, 0x4c));
-        assert_eq!(cpu.program_counter, 0x00ff);
+        assert_eq!(cpu.program_counter.get(), 0x00ff);
     }
 
     #[test]
@@ -1926,7 +1939,7 @@ mod instruction_set {
         use std::io::BufReader;
 
         let bus = DummyMemory::load_nestest(std::path::Path::new("nestest.nes")).expect("Unable to load nestest rom");
-        let mut cpu = Ricoh2A03::new();
+        let cpu = Ricoh2A03::new();
         let nintendulator = BufReader::new(File::open("nestest.log").expect("Unable to load nestest log"));
 
         let mut history = Vec::new();
@@ -1956,7 +1969,7 @@ mod instruction_set {
             futures::executor::block_on(cpu.step(&bus));
         }
 
-        assert_eq!(bus.read(0x0002, cpu.cycle), Some(0x00), "Nestest failed: byte at $02 not $00, documented opcodes wrong");
-        assert_eq!(bus.read(0x0003, cpu.cycle), Some(0x00), "Nestest failed: byte at $03 not $00, illegal opcodes wrong");
+        assert_eq!(bus.read(0x0002, cpu.cycle.get()), Some(0x00), "Nestest failed: byte at $02 not $00, documented opcodes wrong");
+        assert_eq!(bus.read(0x0003, cpu.cycle.get()), Some(0x00), "Nestest failed: byte at $03 not $00, illegal opcodes wrong");
     }
 }
