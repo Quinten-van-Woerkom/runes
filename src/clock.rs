@@ -27,8 +27,11 @@ use std::cell::Cell;
 
 /**
  * Inter-device synchronization is achieved through separate clocks, each
- * keeping track of the emulated number of (device-specific!) cycles that have
+ * keeping track of the emulated number of master clock cycles that have
  * elapsed at a moment in time.
+ * Cycle counts for an NTSC NES are:
+ *  12 master clock cycles per CPU cycle
+ *  4 master clock cycles per PPU cycle
  */
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Clock {
@@ -46,10 +49,6 @@ impl Clock {
 
     pub fn advance(&self, cycles: usize) {
         self.cycle.set(self.cycle.get() + cycles);
-    }
-
-    pub fn tick(&self) {
-        self.advance(1);
     }
 
     pub fn current(&self) -> usize {

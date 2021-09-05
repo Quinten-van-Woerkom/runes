@@ -67,7 +67,7 @@ pub struct Ricoh2A03 {
 impl Ricoh2A03 {
     pub fn new() -> Self {
         Self {
-            time: Clock::from(7), // Start-up takes 7 cycles
+            time: Clock::from(7 * 12), // Start-up takes 7 CPU cycles
             status: Status::new(),
             program_counter: 0xc000.into(),
             stack_pointer: 0xfd.into(),
@@ -87,7 +87,7 @@ impl Ricoh2A03 {
     pub fn from_nintendulator(log: &str) -> Self {
         let mut state = log.split_whitespace();
         let program_counter = u16::from_str_radix(state.next().unwrap(), 16).unwrap().into();
-        let time = Clock::from(usize::from_str_radix(state.next_back().unwrap().strip_prefix("CYC:").unwrap(), 10).unwrap());
+        let time = Clock::from(usize::from_str_radix(state.next_back().unwrap().strip_prefix("CYC:").unwrap(), 10).unwrap() * 12);
 
         let mut skip = state.next().unwrap().strip_prefix("A:");
         while skip.is_none() {
@@ -138,9 +138,9 @@ impl Ricoh2A03 {
             ($flag:ident, $value:expr) => {{
                 self.relative(pinout).await;
                 if self.status.$flag.get() == $value {
-                    self.time.tick();
+                    self.time.advance(12);
                     if self.address.get().high_byte() != self.program_counter.get().high_byte() {
-                        self.time.tick();
+                        self.time.advance(12);
                     }
                     self.program_counter.set(self.address.get());
                 }
@@ -152,7 +152,7 @@ impl Ricoh2A03 {
          */
         macro_rules! set {
             ($flag:ident, $value:expr) => {{
-                self.time.tick();
+                self.time.advance(12);
                 self.status.$flag.set($value);
             }}
         }
@@ -518,7 +518,7 @@ impl Ricoh2A03 {
             match pinout.read(self.address.get(), &self.time) {
                 None => yields().await,
                 Some(data) => {
-                    self.time.tick();
+                    self.time.advance(12);
                     return data;
                 },
             }
@@ -532,7 +532,7 @@ impl Ricoh2A03 {
         loop {
             match pinout.write(self.address.get(), data, &self.time) {
                 None => yields().await,
-                Some(()) => return self.time.tick(),
+                Some(()) => return self.time.advance(12),
             }
         }
     }
@@ -574,7 +574,7 @@ impl Ricoh2A03 {
     fn adjust_page(&self, address: u16) {
         let page_crossing = address.high_byte() != self.address.get().high_byte();
         if page_crossing {
-            self.time.tick();
+            self.time.advance(12);
         }
     }
 
@@ -603,7 +603,7 @@ impl Ricoh2A03 {
      */
     async fn zeropage_x(&self, pinout: &impl Pinout) {
         self.address.set(self.fetch(pinout).await.wrapping_add(self.x.get()) as u16);
-        self.time.tick();
+        self.time.advance(12);
     }
 
     /**
@@ -615,7 +615,7 @@ impl Ricoh2A03 {
      */
     async fn zeropage_y(&self, pinout: &impl Pinout) {
         self.address.set(self.fetch(pinout).await.wrapping_add(self.y.get()) as u16);
-        self.time.tick();
+        self.time.advance(12);
     }
 
     /**
@@ -675,7 +675,7 @@ impl Ricoh2A03 {
     async fn absolute_x_write(&self, pinout: &impl Pinout) {
         self.absolute(pinout).await;
         self.address.set(self.address.get().wrapping_add(self.x.get() as u16));
-        self.time.tick();
+        self.time.advance(12);
     }
 
     /**
@@ -688,7 +688,7 @@ impl Ricoh2A03 {
     async fn absolute_y_write(&self, pinout: &impl Pinout) {
         self.absolute(pinout).await;
         self.address.set(self.address.get().wrapping_add(self.y.get() as u16));
-        self.time.tick();
+        self.time.advance(12);
     }
 
     /**
@@ -749,7 +749,7 @@ impl Ricoh2A03 {
         self.address.set(self.address.get().low_byte().wrapping_add(1) as u16);
         let high_byte = self.read(pinout).await;
         self.address.set(u16::from_bytes(low_byte, high_byte).wrapping_add(self.y.get() as u16));
-        self.time.tick();
+        self.time.advance(12);
     }
 
 
@@ -785,7 +785,7 @@ impl Ricoh2A03 {
         self.operand.set(self.operand.get() << 1);
         self.status.zero.set(self.operand.get() == 0);
         self.status.negative.set(self.operand.get().bit(7));
-        self.time.tick();
+        self.time.advance(12);
     }
 
     /**
@@ -834,14 +834,14 @@ impl Ricoh2A03 {
         self.operand.set(self.operand.get().wrapping_sub(1));
         self.status.zero.set(self.operand.get() == 0);
         self.status.negative.set(self.operand.get().bit(7));
-        self.time.tick();
+        self.time.advance(12);
     }
 
     /**
      * Decrement X register
      */
     fn dex(&self) {
-        self.time.tick();
+        self.time.advance(12);
         self.x.set(self.x.get().wrapping_sub(1));
         self.status.zero.set(self.x.get() == 0);
         self.status.negative.set(self.x.get().bit(7));
@@ -851,7 +851,7 @@ impl Ricoh2A03 {
      * Decrement Y register
      */
     fn dey(&self) {
-        self.time.tick();
+        self.time.advance(12);
         self.y.set(self.y.get().wrapping_sub(1));
         self.status.zero.set(self.y.get() == 0);
         self.status.negative.set(self.y.get().bit(7));
@@ -873,14 +873,14 @@ impl Ricoh2A03 {
         self.operand.set(self.operand.get().wrapping_add(1));
         self.status.zero.set(self.operand.get() == 0);
         self.status.negative.set(self.operand.get().bit(7));
-        self.time.tick();
+        self.time.advance(12);
     }
 
     /**
      * Increment X register
      */
     fn inx(&self) {
-        self.time.tick();
+        self.time.advance(12);
         self.x.set(self.x.get().wrapping_add(1));
         self.status.zero.set(self.x.get() == 0);
         self.status.negative.set(self.x.get().bit(7));
@@ -890,7 +890,7 @@ impl Ricoh2A03 {
      * Increment Y register
      */
     fn iny(&self) {
-        self.time.tick();
+        self.time.advance(12);
         self.y.set(self.y.get().wrapping_add(1));
         self.status.zero.set(self.y.get() == 0);
         self.status.negative.set(self.y.get().bit(7));
@@ -904,14 +904,14 @@ impl Ricoh2A03 {
         self.operand.set(self.operand.get() >> 1);
         self.status.zero.set(self.operand.get() == 0);
         self.status.negative.set(self.operand.get().bit(7));
-        self.time.tick();
+        self.time.advance(12);
     }
 
     /**
      * No operation
      */
     fn nop(&self) {
-        self.time.tick();
+        self.time.advance(12);
     }
 
     /**
@@ -932,7 +932,7 @@ impl Ricoh2A03 {
         self.status.zero.set(result == 0);
         self.status.negative.set(result.bit(7));
         self.operand.set(result);
-        self.time.tick();
+        self.time.advance(12);
     }
 
     /**
@@ -944,7 +944,7 @@ impl Ricoh2A03 {
         self.status.zero.set(result == 0);
         self.status.negative.set(result.bit(7));
         self.operand.set(result);
-        self.time.tick();
+        self.time.advance(12);
     }
 
     /**
@@ -1002,7 +1002,7 @@ impl Ricoh2A03 {
      * BRK - Force interrupt
      */
     async fn brk(&self, pinout: &impl Pinout) {
-        self.time.tick(); // Dummy read
+        self.time.advance(12); // Dummy read
         self.push(pinout, self.program_counter.get().high_byte()).await;
         self.push(pinout, self.program_counter.get().low_byte()).await;
         self.push(pinout, self.status.instruction_value()).await;
@@ -1025,7 +1025,7 @@ impl Ricoh2A03 {
      */
     async fn jsr(&self, pinout: &impl Pinout) {
         let low_byte = self.fetch(pinout).await;
-        self.time.tick();
+        self.time.advance(12);
         self.push(pinout, self.program_counter.get().high_byte()).await;
         self.push(pinout, self.program_counter.get().low_byte()).await;
         let high_byte = self.fetch(pinout).await;
@@ -1036,7 +1036,7 @@ impl Ricoh2A03 {
      * PHA - Push accumulator
      */
     async fn pha(&self, pinout: &impl Pinout) {
-        self.time.tick();
+        self.time.advance(12);
         self.push(pinout, self.a.get()).await;
     }
 
@@ -1044,7 +1044,7 @@ impl Ricoh2A03 {
      * PHP - Push processor status
      */
     async fn php(&self, pinout: &impl Pinout) {
-        self.time.tick();
+        self.time.advance(12);
         self.push(pinout, self.status.instruction_value()).await;
     }
 
@@ -1052,8 +1052,8 @@ impl Ricoh2A03 {
      * PLA - Pull accumulator
      */
     async fn pla(&self, pinout: &impl Pinout) {
-        self.time.tick();
-        self.time.tick();
+        self.time.advance(12);
+        self.time.advance(12);
         self.a.set(self.pull(pinout).await);
         self.status.zero.set(self.a.get() == 0);
         self.status.negative.set(self.a.get().bit(7));
@@ -1063,8 +1063,8 @@ impl Ricoh2A03 {
      * PLP - Pull processor status
      */
     async fn plp(&self, pinout: &impl Pinout) {
-        self.time.tick();
-        self.time.tick();
+        self.time.advance(12);
+        self.time.advance(12);
         self.status.set(self.pull(pinout).await.into());
     }
 
@@ -1072,8 +1072,8 @@ impl Ricoh2A03 {
      * RTI - Return from interrupt
      */
     async fn rti(&self, pinout: &impl Pinout) {
-        self.time.tick(); // Dummy read
-        self.time.tick(); // Pre-increment stack pointer
+        self.time.advance(12); // Dummy read
+        self.time.advance(12); // Pre-increment stack pointer
         self.status.set(self.pull(pinout).await.into());
         self.program_counter.set(u16::from_bytes(
             self.pull(pinout).await,
@@ -1085,20 +1085,20 @@ impl Ricoh2A03 {
      * RTS - Return from subroutine
      */
     async fn rts(&self, pinout: &impl Pinout) {
-        self.time.tick(); // Dummy read
-        self.time.tick(); // Pre-increment stack pointer
+        self.time.advance(12); // Dummy read
+        self.time.advance(12); // Pre-increment stack pointer
         self.program_counter.set(u16::from_bytes(
             self.pull(pinout).await,
             self.pull(pinout).await
         ).wrapping_add(1));
-        self.time.tick();
+        self.time.advance(12);
     }
 
     /**
      * Transfer accumulator to X register
      */
     fn tax(&self) {
-        self.time.tick(); // Dummy read
+        self.time.advance(12); // Dummy read
         self.x.set(self.a.get());
         self.status.zero.set(self.x.get() == 0);
         self.status.negative.set(self.x.get().bit(7));
@@ -1108,7 +1108,7 @@ impl Ricoh2A03 {
      * Transfer accumulator to Y register
      */
     fn tay(&self) {
-        self.time.tick(); // Dummy read
+        self.time.advance(12); // Dummy read
         self.y.set(self.a.get());
         self.status.zero.set(self.y.get() == 0);
         self.status.negative.set(self.y.get().bit(7));
@@ -1118,7 +1118,7 @@ impl Ricoh2A03 {
      * Transfer stack pointer to X register
      */
     fn tsx(&self) {
-        self.time.tick(); // Dummy read
+        self.time.advance(12); // Dummy read
         self.x.set(self.stack_pointer.get());
         self.status.zero.set(self.x.get() == 0);
         self.status.negative.set(self.x.get().bit(7));
@@ -1128,7 +1128,7 @@ impl Ricoh2A03 {
      * Transfer X register to accumulator
      */
     fn txa(&self) {
-        self.time.tick(); // Dummy read
+        self.time.advance(12); // Dummy read
         self.a.set(self.x.get());
         self.status.zero.set(self.a.get() == 0);
         self.status.negative.set(self.a.get().bit(7));
@@ -1138,7 +1138,7 @@ impl Ricoh2A03 {
      * Transfer X register to stack pointer
      */
     fn txs(&self) {
-        self.time.tick(); // Dummy read
+        self.time.advance(12); // Dummy read
         self.stack_pointer.set(self.x.get());
     }
 
@@ -1146,7 +1146,7 @@ impl Ricoh2A03 {
      * Transfer Y register to accumulator
      */
     fn tya(&self) {
-        self.time.tick(); // Dummy read
+        self.time.advance(12); // Dummy read
         self.a.set(self.y.get());
         self.status.zero.set(self.a.get() == 0);
         self.status.negative.set(self.a.get().bit(7));
@@ -1254,7 +1254,7 @@ impl std::fmt::Debug for Ricoh2A03 {
             self.y.get(),
             self.status,
             self.stack_pointer.get(),
-            self.time.current()
+            self.time.current() / 12
         )?;
         Ok(())
     }
@@ -1515,7 +1515,7 @@ mod instruction_set {
                 futures::executor::block_on(cpu.execute(&bus, $opcode));
 
                 // Add one cycle to compensate for missing opcode read
-                let cycles = cpu.time.current() + 1 - start;
+                let cycles = (cpu.time.current() - start) / 12 + 1;
                 assert_eq!(
                     cycles, $cycles,
                     "Incorrect number of cycles for {} {}: \
