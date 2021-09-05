@@ -574,6 +574,17 @@ impl Ricoh2A03 {
         self.read(pinout).await
     }
 
+    /**
+     * For some instructions, page boundary crossings incur an additional cycle
+     * of overhead, because the page adjustment requires an extra operation.
+     */
+    fn adjust_page(&self, address: u16) {
+        let page_crossing = address.high_byte() != self.address.get().high_byte();
+        if page_crossing {
+            self.tick();
+        }
+    }
+
 
     /**
      * Immediate addressing operates straight on the operand.
@@ -643,10 +654,7 @@ impl Ricoh2A03 {
     async fn absolute_x_read(&self, pinout: &impl Pinout) {
         self.absolute(pinout).await;
         let address = self.address.get().wrapping_add(self.x.get() as u16);
-        let page_crossing = address.high_byte() != self.address.get().high_byte();
-        if page_crossing {
-            self.tick();
-        }
+        self.adjust_page(address);
         self.address.set(address);
     }
 
@@ -660,10 +668,7 @@ impl Ricoh2A03 {
     async fn absolute_y_read(&self, pinout: &impl Pinout) {
         self.absolute(pinout).await;
         let address = self.address.get().wrapping_add(self.y.get() as u16);
-        let page_crossing = address.high_byte() != self.address.get().high_byte();
-        if page_crossing {
-            self.tick();
-        }
+        self.adjust_page(address);
         self.address.set(address);
     }
 
@@ -736,11 +741,7 @@ impl Ricoh2A03 {
         let high_byte = self.read(pinout).await;
         let address = u16::from_bytes(low_byte, high_byte);
         self.address.set(address.wrapping_add(self.y.get() as u16));
-
-        let page_crossing = self.address.get().high_byte() != address.high_byte();
-        if page_crossing {
-            self.tick();
-        }
+        self.adjust_page(address);
     }
 
     /**
