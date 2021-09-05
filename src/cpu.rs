@@ -567,14 +567,6 @@ impl Ricoh2A03 {
     }
 
     /**
-     * Returns the cycle (in units of CPU cycles) up till where the device has
-     * been emulated.
-     */
-    pub fn cycle(&self) -> usize {
-        self.cycle.get()
-    }
-
-    /**
      * Advances the cycle counter by one.
      */
     fn tick(&self) {
