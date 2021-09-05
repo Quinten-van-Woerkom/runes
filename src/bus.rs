@@ -26,7 +26,6 @@
 use crate::cartridge::{ Cartridge, load_cartridge };
 use crate::clock::Clock;
 use crate::cpu;
-use std::cell::Cell;
 
 /**
  * All shared memory on an NES system is accessed through the bus, naturally.
@@ -44,7 +43,6 @@ use std::cell::Cell;
  * like the PPU registers. This is needed to be able to force synchronization.
  */
 pub struct Bus {
-    ram: [Cell<u8>; 0x800],
     cartridge: Box<dyn Cartridge>,
 }
 
@@ -56,7 +54,6 @@ impl Bus {
     pub fn from_rom(path: &str) -> Result<Self, std::io::Error> {
         Ok(Self {
             // Safe because u8 and Cell<u8> have the same memory layout.
-            ram: unsafe { std::mem::transmute::<[u8; 0x800], [Cell<u8>; 0x800]>([0u8; 0x800])},
             cartridge: load_cartridge(path)?,
         })
     }
@@ -70,7 +67,6 @@ impl Bus {
 impl cpu::Pinout for Bus {
     fn read(&self, address: u16, time: &Clock) -> Option<u8> {
         match address {
-            0x0000..=0x1fff => Some(self.ram[address as usize % 0x0800].get()),
             0x4020..=0xffff => self.cartridge.cpu_read(address, time),
             // TODO: For now, returns 0
             _ => Some(0)
@@ -79,7 +75,6 @@ impl cpu::Pinout for Bus {
 
     fn write(&self, address: u16, data: u8, time: &Clock) -> Option<()> {
         match address {
-            0x0000..=0x1fff => Some(self.ram[address as usize % 0x0800].set(data)),
             0x4020..=0xffff => self.cartridge.cpu_write(address, data, time),
             // TODO: For now, no-op
             _ => Some(())
@@ -90,7 +85,7 @@ impl cpu::Pinout for Bus {
      * Not yet emulated. For now, updates the clock and acts as if no interrupt
      * was raised.
      */
-    fn nmi(&self, time: &Clock) -> Option<bool> {
+    fn nmi(&self, _time: &Clock) -> Option<bool> {
         Some(false)
     }
 
@@ -98,7 +93,7 @@ impl cpu::Pinout for Bus {
      * Not yet emulated. For now, updates the clock and acts as if no interrupt
      * was raised.
      */
-    fn irq(&self, time: &Clock) -> Option<bool> {
+    fn irq(&self, _time: &Clock) -> Option<bool> {
         Some(false)
     }
 
@@ -106,7 +101,7 @@ impl cpu::Pinout for Bus {
      * Not yet emulated. For now, updates the clock and acts as if no interrupt
      * was raised.
      */
-    fn reset(&self, time: &Clock) -> Option<bool> {
+    fn reset(&self, _time: &Clock) -> Option<bool> {
         Some(false)
     }
 }
@@ -116,10 +111,8 @@ mod access {
     use super::*;
 
     /**
-     * Since we already validate the CPU's instruction set correctness using a
-     * dummy implementation of a bus, we can also validate the bus' correctness
-     * by running nestest again, but then with the actual bus implementation
-     * itself.
+     * With the cycles and bytes for the CPU validated, we now check for actual
+     * behaviour-wise correctness using nestest.
      */
     #[test]
     fn nestest() {

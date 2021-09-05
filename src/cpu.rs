@@ -62,6 +62,7 @@ pub struct Ricoh2A03 {
     y: Cell<u8>,
     operand: Cell<u8>, // Data bus register, combination of SB/DB
     address: Cell<u16>, // Address bus register, combination of ADL/ADH/ABL/ABH
+    ram: [Cell<u8>; 0x800],
 }
 
 impl Ricoh2A03 {
@@ -76,6 +77,7 @@ impl Ricoh2A03 {
             y: 0x00.into(),
             operand: 0x00.into(),
             address: 0x0000.into(),
+            ram: unsafe { std::mem::transmute::<[u8; 0x800], [Cell<u8>; 0x800]>([0u8; 0x800])},
         }
     }
 
@@ -110,6 +112,7 @@ impl Ricoh2A03 {
             y,
             operand: 0x00.into(),
             address: 0x0000.into(),
+            ram: unsafe { std::mem::transmute::<[u8; 0x800], [Cell<u8>; 0x800]>([0u8; 0x800])},
         }
     }
 
@@ -514,14 +517,21 @@ impl Ricoh2A03 {
      * Reads from the bus, taking one cycle.
      */
     async fn read(&self, pinout: &impl Pinout) -> u8 {
-        loop {
-            match pinout.read(self.address.get(), &self.time) {
-                None => yields().await,
-                Some(data) => {
-                    self.time.advance(12);
-                    return data;
-                },
-            }
+        let address = self.address.get();
+        match address {
+            0x0000..=0x1fff => {
+                self.time.advance(12);
+                return self.ram[address as usize % 0x0800].get();
+            },
+            _ => loop {
+                match pinout.read(address, &self.time) {
+                    None => yields().await,
+                    Some(data) => {
+                        self.time.advance(12);
+                        return data;
+                    },
+                }
+            },
         }
     }
 
@@ -529,11 +539,18 @@ impl Ricoh2A03 {
      * Writes to the bus, taking one cycle.
      */
     async fn write(&self, pinout: &impl Pinout, data: u8) {
-        loop {
-            match pinout.write(self.address.get(), data, &self.time) {
-                None => yields().await,
-                Some(()) => return self.time.advance(12),
-            }
+        let address = self.address.get();
+        match address {
+            0x0000..=0x1fff => {
+                self.time.advance(12);
+                self.ram[address as usize % 0x0800].set(data)
+            },
+            _ => loop {
+                match pinout.write(self.address.get(), data, &self.time) {
+                    None => yields().await,
+                    Some(()) => return self.time.advance(12),
+                }
+            },
         }
     }
 
@@ -1297,6 +1314,7 @@ impl Clone for Ricoh2A03 {
             y: self.y.clone(),
             operand: self.operand.clone(),
             address: self.address.clone(),
+            ram: self.ram.clone(),
         }
     }
 }
@@ -1469,29 +1487,19 @@ mod status {
 #[cfg(test)]
 mod instruction_set {
     use super::*;
-    use std::cell::Cell;
 
     /**
-     * For testing purposes, we here use a dummy bus that interfaces to only
-     * 256 bytes of memory.
+     * For testing purposes, we here use a dummy bus that does not own any
+     * memory.
      */
-    struct DummyBus {
-        data: [Cell<u8>; 0x100],
-    }
-
-    impl DummyBus {
-        fn new() -> Self {
-            Self { data: unsafe { std::mem::transmute([0u8; 0x100]) } }
-        }
-    }
+    struct DummyBus {}
 
     impl Pinout for DummyBus {
-        fn read(&self, address: u16, _time: &Clock) -> Option<u8> {
-            Some(self.data[address as usize % 0x100].get())
+        fn read(&self, _address: u16, _time: &Clock) -> Option<u8> {
+            Some(0)
         }
 
-        fn write(&self, address: u16, data: u8, _time: &Clock) -> Option<()> {
-            self.data[address as usize % 0x100].set(data);
+        fn write(&self, _address: u16, _data: u8, _time: &Clock) -> Option<()> {
             Some(())
         }
 
@@ -1502,7 +1510,7 @@ mod instruction_set {
 
     #[test]
     fn cycles() {
-        let bus = DummyBus::new();
+        let bus = DummyBus{};
         let cpu = Ricoh2A03::new();
 
         macro_rules! check_cycles {
@@ -1535,10 +1543,10 @@ mod instruction_set {
                 check_cycles!($opcode, $cycles, $instruction, $addressing);
 
                 cpu.status.$flag.set($value);
-                bus.data[0xf0].set(0x00);
+                cpu.ram[0xf0].set(0x00);
                 check_cycles!($opcode, $cycles + 1, $instruction, $addressing);
 
-                bus.data[0xf0].set(0x0f);
+                cpu.ram[0xf0].set(0x0f);
                 check_cycles!($opcode, $cycles + 2, $instruction, $addressing);
             }};
         }
@@ -1709,7 +1717,7 @@ mod instruction_set {
 
     #[test]
     fn bytes() {
-        let bus = DummyBus::new();
+        let bus = DummyBus{};
         let cpu = Ricoh2A03::new();
 
         macro_rules! check_bytes {
@@ -1901,13 +1909,10 @@ mod instruction_set {
 
     #[test]
     fn jump() {
-        let bus = {
-            let bus = DummyBus::new();
-            bus.write(0xc000, 0xff, &Clock::new());
-            bus
-        };
+        let bus = DummyBus{};
         let cpu = Ricoh2A03::new();
-        cpu.program_counter.set(0xc000);
+        cpu.ram[0x100].set(0xff);
+        cpu.program_counter.set(0x100);
 
         futures::executor::block_on(cpu.execute(&bus, 0x4c));
         assert_eq!(cpu.program_counter.get(), 0x00ff);
