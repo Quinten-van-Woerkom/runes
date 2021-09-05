@@ -1,6 +1,6 @@
 mod bitwise;
 mod cartridge;
-mod cpu;
+mod ricoh2A03;
 mod memory;
 mod yields;
 
