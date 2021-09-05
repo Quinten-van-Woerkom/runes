@@ -118,14 +118,6 @@ impl Ricoh2A03 {
         }
     }
 
-    pub fn cycle(&self) -> usize {
-        self.cycle.get()
-    }
-
-    fn tick(&self) {
-        self.cycle.set(self.cycle.get() + 1);
-    }
-
     pub async fn step(&self, pinout: &impl Pinout) {
         let opcode = self.fetch(pinout).await;
         self.execute(pinout, opcode).await;
@@ -572,6 +564,21 @@ impl Ricoh2A03 {
         self.address.set(self.program_counter.get());
         self.program_counter.set(self.program_counter.get().wrapping_add(1));
         self.read(pinout).await
+    }
+
+    /**
+     * Returns the cycle (in units of CPU cycles) up till where the device has
+     * been emulated.
+     */
+    pub fn cycle(&self) -> usize {
+        self.cycle.get()
+    }
+
+    /**
+     * Advances the cycle counter by one.
+     */
+    fn tick(&self) {
+        self.cycle.set(self.cycle.get() + 1);
     }
 
     /**
