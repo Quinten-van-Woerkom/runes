@@ -1,5 +1,5 @@
 /**
- * memory.rs
+ * bus.rs
  * Part of Rust Nintendo Entertainment System emulator ("RuNES")
  * 
  * Copyright (c) 2021 Quinten van Woerkom
@@ -42,12 +42,12 @@ use std::cell::Cell;
  * through the bus, even when, in reality, it belongs to the accessing device,
  * like the PPU registers. This is needed to be able to force synchronization.
  */
-pub struct Memory {
+pub struct Bus {
     ram: [Cell<u8>; 0x800],
     cartridge: Box<dyn Cartridge>,
 }
 
-impl Memory {
+impl Bus {
     /**
      * Constructs a bus by loading a ROM file into memory.
      * Can fail if file I/O fails or if an incorrect ROM file is passed.
@@ -62,14 +62,14 @@ impl Memory {
 }
 
 /**
- * Memory must be accessible for the CPU, which is achieved by emulating its
+ * Bus must be accessible for the CPU, which is achieved by emulating its
  * pinout interface.
  * For each CPU memory access, the memory's "copy" of the CPU clock is updated.
  */
-impl cpu::Pinout for Memory {
+impl cpu::Pinout for Bus {
     fn read(&self, address: u16, cycle: usize) -> Option<u8> {
         match address {
-            0x0000..=0x1fff => Some(self.ram[(address % 0x800) as usize].get()),
+            0x0000..=0x1fff => Some(self.ram[address as usize % 0x0800].get()),
             0x4020..=0xffff => self.cartridge.cpu_read(address, cycle),
             // TODO: For now, returns 0
             _ => Some(0)
@@ -78,7 +78,7 @@ impl cpu::Pinout for Memory {
 
     fn write(&self, address: u16, data: u8, cycle: usize) -> Option<()> {
         match address {
-            0x0000..=0x1fff => Some(self.ram[(address % 0x800) as usize].set(data)),
+            0x0000..=0x1fff => Some(self.ram[address as usize % 0x0800].set(data)),
             0x4020..=0xffff => self.cartridge.cpu_write(address, data, cycle),
             // TODO: For now, no-op
             _ => Some(())
@@ -125,7 +125,7 @@ mod access {
         use std::fs::File;
         use std::io::*;
 
-        let bus = Memory::from_rom("nestest.nes").expect("Unable to load nestest rom");
+        let bus = Bus::from_rom("nestest.nes").expect("Unable to load nestest rom");
         let cpu = cpu::Ricoh2A03::new();
         let nintendulator = BufReader::new(File::open("nestest.log").expect("Unable to load nestest log"));
 
