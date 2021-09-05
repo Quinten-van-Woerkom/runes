@@ -1477,42 +1477,28 @@ mod status {
 mod instruction_set {
     use super::*;
     use std::cell::Cell;
-    use std::io::*;
 
     /**
-     * For testing purposes, we here represent memory as an array, without
-     * memory mapping.
+     * For testing purposes, we here use a dummy bus that interfaces to only
+     * 256 bytes of memory.
      */
-    struct DummyMemory {
-        data: [Cell<u8>; 0x10000],
+    struct DummyBus {
+        data: [Cell<u8>; 0x100],
     }
 
-    impl DummyMemory {
+    impl DummyBus {
         fn new() -> Self {
-            Self { data: unsafe { std::mem::transmute([0u8; 0x10000]) } }
-        }
-
-        fn load_nestest(path: &std::path::Path) -> std::io::Result<Self> {
-            let mut buffer = [0u8; 0x10000];
-            let mut file = std::fs::File::open(path)?;
-            file.seek(SeekFrom::Start(16))?;
-            file.read_exact(&mut buffer[0x8000..=0xbfff])?;
-
-            for i in 0xc000..=0xffff {
-                buffer[i] = buffer[i.wrapping_sub(0x4000)];
-            }
-
-            Ok(Self { data: unsafe { std::mem::transmute(buffer) } } )
+            Self { data: unsafe { std::mem::transmute([0u8; 0x100]) } }
         }
     }
 
-    impl Pinout for DummyMemory {
+    impl Pinout for DummyBus {
         fn read(&self, address: u16, _cycle: usize) -> Option<u8> {
-            Some(self.data[address as usize].get())
+            Some(self.data[address as usize % 0x100].get())
         }
 
         fn write(&self, address: u16, data: u8, _cycle: usize) -> Option<()> {
-            self.data[address as usize].set(data);
+            self.data[address as usize % 0x100].set(data);
             Some(())
         }
 
@@ -1523,7 +1509,7 @@ mod instruction_set {
 
     #[test]
     fn cycles() {
-        let bus = DummyMemory::new();
+        let bus = DummyBus::new();
         let cpu = Ricoh2A03::new();
 
         macro_rules! check_cycles {
@@ -1730,7 +1716,7 @@ mod instruction_set {
 
     #[test]
     fn bytes() {
-        let bus = DummyMemory::new();
+        let bus = DummyBus::new();
         let cpu = Ricoh2A03::new();
 
         macro_rules! check_bytes {
@@ -1923,8 +1909,8 @@ mod instruction_set {
     #[test]
     fn jump() {
         let bus = {
-            let mut bus = DummyMemory::new();
-            bus.data[0xc000] = Cell::from(0xff);
+            let bus = DummyBus::new();
+            bus.write(0xc000, 0xff, 0);
             bus
         };
         let cpu = Ricoh2A03::new();
@@ -1932,45 +1918,5 @@ mod instruction_set {
 
         futures::executor::block_on(cpu.execute(&bus, 0x4c));
         assert_eq!(cpu.program_counter.get(), 0x00ff);
-    }
-
-    #[test]
-    fn nestest() {
-        use std::fs::File;
-        use std::io::BufReader;
-
-        let bus = DummyMemory::load_nestest(std::path::Path::new("nestest.nes")).expect("Unable to load nestest rom");
-        let cpu = Ricoh2A03::new();
-        let nintendulator = BufReader::new(File::open("nestest.log").expect("Unable to load nestest log"));
-
-        let mut history = Vec::new();
-        for _ in 0..50 {
-            history.push((Ricoh2A03::new(), String::new()));
-        }
-
-        for log_line in nintendulator.lines() {
-            let log_line = log_line.expect("Error reading Nintendulator log line");
-            let nintendulator = Ricoh2A03::from_nintendulator(&log_line);
-
-            // Terribly inefficient, but fine, it's the easiest way to show
-            // the execution history in order.
-            history[0] = (cpu.clone(), log_line.clone());
-            history.sort_by(|a, b| a.0.cycle.cmp(&b.0.cycle));
-            
-            assert_eq!(cpu, nintendulator,
-                "\nHistory:\n{:?}
-                \nDoes not match Nintendulator log:\
-                {:?} (Current)\
-                {:?} (Correct)\n",
-                history,
-                cpu,
-                nintendulator
-            );
-
-            futures::executor::block_on(cpu.step(&bus));
-        }
-
-        assert_eq!(bus.read(0x0002, cpu.cycle.get()), Some(0x00), "Nestest failed: byte at $02 not $00, documented opcodes wrong");
-        assert_eq!(bus.read(0x0003, cpu.cycle.get()), Some(0x00), "Nestest failed: byte at $03 not $00, illegal opcodes wrong");
     }
 }
