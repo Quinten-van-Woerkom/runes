@@ -142,9 +142,7 @@ impl Ricoh2A03 {
                 self.relative(pinout).await;
                 if self.status.$flag.get() == $value {
                     self.tick();
-                    if self.address.get().high_byte() != self.program_counter.get().high_byte() {
-                        self.tick();
-                    }
+                    self.adjust_page(self.program_counter.get());
                     self.program_counter.set(self.address.get());
                 }
             }};
