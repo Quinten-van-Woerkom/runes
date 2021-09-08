@@ -35,7 +35,7 @@ use std::cell::Cell;
  */
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Clock {
-    cycle: Cell<usize>,
+    cycle: Cell<u64>,
 }
 
 impl Clock {
@@ -43,15 +43,15 @@ impl Clock {
         Self { cycle: Cell::new(0) }
     }
 
-    pub fn from(cycle: usize) -> Self {
+    pub fn from(cycle: u64) -> Self {
         Self { cycle: Cell::from(cycle) }
     }
 
-    pub fn advance(&self, cycles: usize) {
+    pub fn advance(&self, cycles: u64) {
         self.cycle.set(self.cycle.get() + cycles);
     }
 
-    pub fn current(&self) -> usize {
+    pub fn current(&self) -> u64 {
         self.cycle.get()
     }
 }

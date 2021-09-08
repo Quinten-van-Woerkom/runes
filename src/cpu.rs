@@ -89,7 +89,7 @@ impl Ricoh2A03 {
     pub fn from_nintendulator(log: &str) -> Self {
         let mut state = log.split_whitespace();
         let program_counter = u16::from_str_radix(state.next().unwrap(), 16).unwrap().into();
-        let time = Clock::from(usize::from_str_radix(state.next_back().unwrap().strip_prefix("CYC:").unwrap(), 10).unwrap() * 12);
+        let time = Clock::from(u64::from_str_radix(state.next_back().unwrap().strip_prefix("CYC:").unwrap(), 10).unwrap() * 12);
 
         let mut skip = state.next().unwrap().strip_prefix("A:");
         while skip.is_none() {
