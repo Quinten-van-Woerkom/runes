@@ -25,6 +25,7 @@
 
 use crate::bitwise::{ Bitwise, Word };
 use crate::clock::Clock;
+use crate::memory::Memory;
 use crate::yields::yields;
 
 use std::cell::Cell;
@@ -62,7 +63,7 @@ pub struct Ricoh2A03 {
     y: Cell<u8>,
     operand: Cell<u8>, // Data bus register, combination of SB/DB
     address: Cell<u16>, // Address bus register, combination of ADL/ADH/ABL/ABH
-    ram: [Cell<u8>; 0x800],
+    ram: Memory<0x0000, 0x0800>,
 }
 
 impl Ricoh2A03 {
@@ -77,7 +78,7 @@ impl Ricoh2A03 {
             y: 0x00.into(),
             operand: 0x00.into(),
             address: 0x0000.into(),
-            ram: unsafe { std::mem::transmute::<[u8; 0x800], [Cell<u8>; 0x800]>([0u8; 0x800])},
+            ram: Memory::new(),
         }
     }
 
@@ -112,7 +113,7 @@ impl Ricoh2A03 {
             y,
             operand: 0x00.into(),
             address: 0x0000.into(),
-            ram: unsafe { std::mem::transmute::<[u8; 0x800], [Cell<u8>; 0x800]>([0u8; 0x800])},
+            ram: Memory::new(),
         }
     }
 
@@ -519,7 +520,7 @@ impl Ricoh2A03 {
         match address {
             0x0000..=0x1fff => {
                 self.tick();
-                return self.ram[address as usize % 0x0800].get();
+                return self.ram.read(address);
             },
             _ => loop {
                 match pinout.read(address, &self.time) {
@@ -541,7 +542,7 @@ impl Ricoh2A03 {
         match address {
             0x0000..=0x1fff => {
                 self.tick();
-                self.ram[address as usize % 0x0800].set(data)
+                self.ram.write(address, data)
             },
             _ => loop {
                 match pinout.write(self.address.get(), data, &self.time) {
@@ -1548,10 +1549,10 @@ mod instruction_set {
                 check_cycles!($opcode, $cycles, $instruction, $addressing);
 
                 cpu.status.$flag.set($value);
-                cpu.ram[0xf0].set(0x00);
+                cpu.ram.write(0xf0, 0x00);
                 check_cycles!($opcode, $cycles + 1, $instruction, $addressing);
 
-                cpu.ram[0xf0].set(0x0f);
+                cpu.ram.write(0xf0, 0x0f);
                 check_cycles!($opcode, $cycles + 2, $instruction, $addressing);
             }};
         }
@@ -1916,7 +1917,7 @@ mod instruction_set {
     fn jump() {
         let bus = DummyBus{};
         let cpu = Ricoh2A03::new();
-        cpu.ram[0x100].set(0xff);
+        cpu.ram.write(0x100, 0xff);
         cpu.program_counter.set(0x100);
 
         futures::executor::block_on(cpu.execute(&bus, 0x4c));
