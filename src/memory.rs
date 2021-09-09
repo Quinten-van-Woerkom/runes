@@ -31,11 +31,11 @@ use std::cell::Cell;
  * For this type of memory, we here implement a generic type.
  */
 #[derive(Clone)]
-pub struct Memory<const ADDRESS: usize, const SIZE: usize> {
+pub struct StaticMemory<const ADDRESS: usize, const SIZE: usize> {
     data: [Cell<u8>; SIZE],
 }
 
-impl<const ADDRESS: usize, const SIZE: usize> Memory<ADDRESS, SIZE> {
+impl<const ADDRESS: usize, const SIZE: usize> StaticMemory<ADDRESS, SIZE> {
     pub fn new() -> Self {
         Self {
             data: unsafe { [0u8; SIZE].as_ptr().cast::<[Cell<u8>; SIZE]>().read() },
@@ -54,12 +54,12 @@ impl<const ADDRESS: usize, const SIZE: usize> Memory<ADDRESS, SIZE> {
 }
 
 #[cfg(test)]
-mod memory {
+mod static_memory {
     use super::*;
 
     #[test]
     fn initialization() {
-        let memory = Memory::<0x2000, 0x0800>::new();
+        let memory = StaticMemory::<0x2000, 0x0800>::new();
 
         for address in 0x2000..0x2800 {
             assert_eq!(memory.read(address), 0x0000);
@@ -68,7 +68,7 @@ mod memory {
 
     #[test]
     fn persistence() {
-        let memory = Memory::<0x2000, 0x0800>::new();
+        let memory = StaticMemory::<0x2000, 0x0800>::new();
 
         for address in 0x2000..0x2800 {
             memory.write(address, 0xff);
@@ -83,7 +83,7 @@ mod memory {
     fn mirroring() {
         use std::convert::TryInto;
 
-        let memory = Memory::<0x2000, 0x0800>::new();
+        let memory = StaticMemory::<0x2000, 0x0800>::new();
 
         // Writing in "regular" memory and checking that mirrored memory reflects this.
         for address in 0x2000..0x2800 {

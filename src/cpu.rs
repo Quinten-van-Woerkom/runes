@@ -25,7 +25,7 @@
 
 use crate::bitwise::{ Bitwise, Word };
 use crate::clock::Clock;
-use crate::memory::Memory;
+use crate::memory::StaticMemory;
 use crate::yields::yields;
 
 use std::cell::Cell;
@@ -63,7 +63,7 @@ pub struct Ricoh2A03 {
     y: Cell<u8>,
     operand: Cell<u8>, // Data bus register, combination of SB/DB
     address: Cell<u16>, // Address bus register, combination of ADL/ADH/ABL/ABH
-    ram: Memory<0x0000, 0x0800>,
+    ram: StaticMemory<0x0000, 0x0800>,
 }
 
 impl Ricoh2A03 {
@@ -78,7 +78,7 @@ impl Ricoh2A03 {
             y: 0x00.into(),
             operand: 0x00.into(),
             address: 0x0000.into(),
-            ram: Memory::new(),
+            ram: StaticMemory::new(),
         }
     }
 
@@ -113,7 +113,7 @@ impl Ricoh2A03 {
             y,
             operand: 0x00.into(),
             address: 0x0000.into(),
-            ram: Memory::new(),
+            ram: StaticMemory::new(),
         }
     }
 
