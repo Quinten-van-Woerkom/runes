@@ -12,6 +12,7 @@ Cargo.lock
 # Removes NES ROMs and log files
 *.nes
 *.log
+!Dummy NES file.nes
 
 # Added by cargo
 

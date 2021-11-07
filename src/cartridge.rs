@@ -231,7 +231,7 @@ mod header {
 
     #[test]
     fn loading() {
-        let mut file = File::open("Donkey Kong (World) (Rev A).nes").unwrap();
+        let mut file = File::open("Dummy NES file.nes").unwrap();
         let header = Header::load(&mut file).unwrap();
 
         assert_eq!(header.prg_rom_size(), 16384);
