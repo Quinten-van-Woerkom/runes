@@ -347,7 +347,7 @@ mod mapper0 {
 
     #[test]
     fn loading() {
-        let mut file = File::open("Donkey Kong (World) (Rev A).nes").unwrap();
+        let mut file = File::open("Dummy NES file.nes").unwrap();
         let header = Header::load(&mut file).unwrap();
         let cartridge = Mapper0::load(header, &mut file).unwrap();
 
